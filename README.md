@@ -39,6 +39,7 @@ python train.py --config=yolact_base_config --batch_size=4
 python eval.py --trained_model=weights/yolact_base_54_800000.pth
 ```
 The results should be:
+![Example 1](data/mAP.png)
 
 ```Shell
 # Resume training (just pass the .pth file to the model by using --resume).
@@ -47,3 +48,4 @@ python train.py --config=yolact_base_config --resume weights/yolact_base_2_35000
 # Using --batch_size, --lr, --momentum, --decay to set the batch size, learning rate, momentum and weight decay.
 python train.py --config=yolact_base_config --batch_size=4
 ```
+More details wait to be added....................
