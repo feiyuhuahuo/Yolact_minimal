@@ -1,6 +1,6 @@
 #!/usr/bin/env python 
 # -*- coding:utf-8 -*-
-from data import cfg
+from data.config import cfg
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 
