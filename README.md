@@ -51,7 +51,7 @@ python coco_eval.py
 python eval.py --trained_model=weights/yolact_base_54_800000.pth --benchmark --max_images=1000
 ```
 ## Detect
-
+![Example 2](data/2.jpg)
 ```Shell
 # Detect images, pass the path of your image directory to --image_path.
 python eval.py --trained_model=weights/yolact_base_54_800000.pth --image_path images
