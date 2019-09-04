@@ -190,8 +190,8 @@ def train():
                 if iteration == cfg.max_iter:
                     break
 
-            net.module.save_weights(f'\nweights/{cfg.name}_{epoch}_{iteration}.pth')
-            print(f'Model saved in weights: {cfg.name}_{epoch}_{iteration}.pth')
+            net.module.save_weights(f'weights/{cfg.name}_{epoch}_{iteration}.pth')
+            print(f'\nModel saved in weights: {cfg.name}_{epoch}_{iteration}.pth')
 
             table = compute_val_map(net.module)
             map_tables.append((iteration, table))
