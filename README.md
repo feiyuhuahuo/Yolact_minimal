@@ -57,5 +57,7 @@ python eval.py --trained_model=weights/yolact_base_54_800000.pth --benchmark --m
 python eval.py --trained_model=weights/yolact_base_54_800000.pth --image_path images
 # Detect a video, pass the path of your video to --video.
 python eval.py --trained_model=weights/yolact_base_54_800000.pth --video video/1.mp4
+# Use --hide_mask, --hide_score, --show_lincomb and so on to get different results.
+python eval.py --trained_model=weights/yolact_base_54_800000.pth --image_path images --hide_mask
 ```
 More details wait to be added....................
