@@ -42,10 +42,20 @@ The results should be:
 ![Example 1](data/mAP.png)
 
 ```Shell
-# Resume training (just pass the .pth file to the model by using --resume).
-python train.py --config=yolact_base_config --resume weights/yolact_base_2_35000.pth
+# Create a json file and then use the COCO API to evaluate the result.
+python eval.py --config=yolact_base_config --output_coco_json
+# Then,
+python coco_eval.py
 
-# Using --batch_size, --lr, --momentum, --decay to set the batch size, learning rate, momentum and weight decay.
-python train.py --config=yolact_base_config --batch_size=4
+# Benchmark
+python eval.py --trained_model=weights/yolact_base_54_800000.pth --benchmark --max_images=1000
+```
+## Detect
+
+```Shell
+# Detect images, pass the path of your image directory to --image_path.
+python eval.py --trained_model=weights/yolact_base_54_800000.pth --image_path images
+# Detect a video, pass the path of your video to --video.
+python eval.py --trained_model=weights/yolact_base_54_800000.pth --video video/1.mp4
 ```
 More details wait to be added....................
