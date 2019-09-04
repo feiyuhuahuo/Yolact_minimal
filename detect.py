@@ -19,7 +19,7 @@ import cv2
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description='YOLACT COCO Evaluation')
     parser.add_argument('--trained_model', default='weights/yolact_base_54_800000.pth', type=str)
-    parser.add_argument('--top_k', default=5, type=int, help='Further restrict the number of predictions to parse')
+    parser.add_argument('--top_k', default=100, type=int, help='Further restrict the number of predictions to parse')
     parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
     parser.add_argument('--hide_mask', default=False, action='store_true', help='Whether to display masks')
     parser.add_argument('--hide_bbox', default=False, action='store_true', help='Whether to display bboxes')
@@ -187,10 +187,13 @@ if __name__ == '__main__':
         config = model_path.model_name + '_config'
         print(f'Config not specified. Parsed \'{config}\' from the file name.\n')
         set_cfg(config)
-
-    save_path = 'results/images'
-    if not os.path.exists(save_path):
-        os.mkdir(save_path)
+        
+    img_path = 'results/images'
+    video_path = 'results/videos'
+    if not os.path.exists(img_path):
+        os.mkdir(img_path)
+    if not os.path.exists(video_path):
+        os.mkdir(video_path)
 
     with torch.no_grad():
         cuda = torch.cuda.is_available()
