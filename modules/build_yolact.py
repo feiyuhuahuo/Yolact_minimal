@@ -366,7 +366,6 @@ class Yolact(nn.Module):
             if cfg.use_semantic_segmentation_loss:   # True
                 predictions['segm'] = self.semantic_seg_conv(outs[0])
 
-
             return predictions
 
         else:
