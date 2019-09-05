@@ -1,11 +1,12 @@
-## YOLACT_minimal
-Minimal PyTorch implementation of YOLACT.
+## Yolact_minimal
+Minimal PyTorch implementation of Yolact:《YOLACT: Real-time Instance Segmentation》.
 
-Simplified the original code, make the network easy to understand.  
-[Paper here](https://arxiv.org/abs/1904.02689)
+The original project is [here](https://github.com/dbolya/yolact).  
+Related paper is [here](https://arxiv.org/abs/1904.02689).  
+This implementation simplified the original code, preserved the main function and made the network easy to understand.   
 
 Following instruction is based on resnet-101.  
-The model structure.  
+### The network structure.  
 ![Example 0](data/network.png)
 
 ## Environments
@@ -16,9 +17,9 @@ Other common packages.
 ## Prepare
 - Firstly, modify the paths of training and val datasets in `data/config.py` in line 72-77.  
 - If some directories are missed, just create them by yourself.   
-- Download the pretrained weights from the [original project](https://github.com/dbolya/yolact).  
-[ImageNet pretrained weights](https://drive.google.com/file/d/1tvqFPd4bJtakOlmn-uIA492g2qurRChj/view?usp=sharing) here.  
-[Yolact pretrained weights](https://drive.google.com/file/d/1UYy3dMapbH1BnmtZU4WH1zbYgOzzHHf_/view?usp=sharing) here.  
+- Download the pretrained weights.  
+[ImageNet pretrained weights](https://drive.google.com/file/d/1tvqFPd4bJtakOlmn-uIA492g2qurRChj/view?usp=sharing)   
+[Yolact pretrained weights](https://drive.google.com/file/d/1UYy3dMapbH1BnmtZU4WH1zbYgOzzHHf_/view?usp=sharing)    
 
 
 ## Train
