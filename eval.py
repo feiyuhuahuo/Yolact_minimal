@@ -4,7 +4,6 @@ from utils.augmentations import BaseTransform
 from utils.functions import MovingAverage, ProgressBar
 from utils.box_utils import jaccard
 from utils import timer
-from utils.functions import SavePath
 from utils.output_utils import postprocess, NMS
 import pycocotools
 from data.config import cfg, set_cfg
@@ -406,10 +405,10 @@ if __name__ == '__main__':
     parse_args()
 
     if args.config is None:
-        model_path = SavePath.from_str(args.trained_model)
-        config = model_path.model_name + '_config'
-        print(f'Config not specified. Parsed \'{config}\' from the file name.\n')
-        set_cfg(config)
+        piece = args.trained_model.split('/')[1].split('_')
+        name = f'{piece[0]}_{piece[1]}_config'
+        print(f'Config not specified. Parsed \'{name}\' from the checkpoint name.\n')
+        set_cfg(name)
 
     if not os.path.exists('results'):
         os.makedirs('results')

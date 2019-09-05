@@ -1,5 +1,5 @@
 from utils.augmentations import SSDAugmentation, BaseTransform
-from utils.functions import MovingAverage, SavePath
+from utils.functions import MovingAverage
 from utils import timer
 from modules.build_yolact import Yolact
 import time
@@ -15,15 +15,18 @@ import torch.utils.data as data
 import argparse
 import datetime
 import eval
+import os
 from data.coco import detection_collate
 
 parser = argparse.ArgumentParser(description='Yolact Training Script')
 parser.add_argument('--config', default=None, help='The config object to use.')
-parser.add_argument('--batch_size', default=2, type=int)
+parser.add_argument('--batch_size', default=8, type=int)
 parser.add_argument('--resume', default=None, type=str, help='The path of checkpoint file to resume training from.')
-parser.add_argument('--lr', '--learning_rate', default=None, type=float, help='Initial learning rate. Leave as None to read this from the config.')
+parser.add_argument('--lr', default=None, type=float, help='Initial learning rate. Leave as None to read this from the config.')
 parser.add_argument('--momentum', default=None, type=float, help='Momentum for SGD. Leave as None to read this from the config.')
-parser.add_argument('--decay', '--weight_decay', default=None, type=float, help='Weight decay for SGD. Leave as None to read this from the config.')
+parser.add_argument('--decay', default=None, type=float, help='Weight decay for SGD. Leave as None to read this from the config.')
+parser.add_argument('--val_interval', default=10000, type=int, help='Val and save the model every [val_interval] iterations, pass -1 to disable.')
+parser.add_argument('--max_keep', default=10, type=int, help='The maximum number of .pth files to keep.')
 args = parser.parse_args()
 
 if args.config is not None:
@@ -83,6 +86,18 @@ def val_result(map_tables):
         print(f'iteration: {iteration}')
         print(table, '\n')
 
+def remove_pth():
+    path_list = os.listdir('weights')
+    path_list = [aa for aa in path_list if 'yolact_base' in aa]
+    path_list.remove('yolact_base_54_800000.pth')
+    iter_num = [int(aa.split('.')[0].split('_')[-1]) for aa in path_list]
+    iter_num.sort()
+
+    if len(path_list) > args.max_keep:
+        for aa in path_list:
+            if str(iter_num[0]) in aa:
+                os.remove('weights/' + aa)
+
 def train():
     dataset = COCODetection(image_path=cfg.dataset.train_images,
                             info_file=cfg.dataset.train_info,
@@ -96,11 +111,12 @@ def train():
 
     if args.resume is not None:
         net.load_weights(args.resume)
-        resume_iter = SavePath.from_str(args.resume).iteration
-        print(f'\nResume training, start at iteration: {resume_iter}.')
+        resume_epoch = args.resume.split('.')[0].split('_')[2]
+        resume_iter = args.resume.split('.')[0].split('_')[3]
+        print(f'\nResume training at epoch: {resume_epoch}, iteration: {resume_iter}.')
     else:
-        print('Initializing weights...')
         net.init_weights(backbone_path='weights/' + cfg.backbone.path)
+        print('\nTraining from begining, weights initialized.')
 
     optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.decay)
     criterion = Multi_Loss(num_classes=cfg.num_classes,
@@ -113,10 +129,13 @@ def train():
         net = nn.DataParallel(net).cuda()
         criterion = nn.DataParallel(criterion).cuda()
 
-    iteration = resume_iter if args.resume else 0
     epoch_size = len(dataset) // args.batch_size
-    num_epochs = cfg.max_iter // epoch_size + 1
     step_index = 0
+
+    iteration = resume_iter if args.resume else 0
+    start_epoch = iteration // epoch_size
+    end_epoch = cfg.max_iter // epoch_size + 1
+    remain = iteration % epoch_size
 
     data_loader = data.DataLoader(dataset,
                                   args.batch_size,
@@ -126,24 +145,21 @@ def train():
                                   pin_memory=True)
 
     time_avg = MovingAverage()
-
     loss_types = ['B', 'C', 'M', 'S']
-    loss_avgs  = { k: MovingAverage(100) for k in loss_types }
+    loss_avgs  = {k: MovingAverage(100) for k in loss_types}
     map_tables = []
 
     print('Begin training!\n')
-    # try-except so you can use ctrl+c to save early and stop training
+    # Use try-except to use ctrl+c to stop and save early.
     try:
-        for epoch in range(num_epochs):
-            # Resume from start_iter
-            if (epoch+1)*epoch_size < iteration:
-                continue
-
-            for datum in data_loader:
+        for epoch in range(start_epoch, end_epoch):
+            for i, datum in enumerate(data_loader):
                 torch.cuda.synchronize()
                 train_start = time.time()
-                iteration += 1
+                if args.resume and epoch == start_epoch and i >= remain:
+                    break
 
+                iteration += 1
                 # Warm up learning rate
                 if cfg.lr_warmup_until > 0 and iteration <= cfg.lr_warmup_until:
                     set_lr(optimizer, (args.lr - cfg.lr_warmup_init) * (iteration / cfg.lr_warmup_until) + cfg.lr_warmup_init)
@@ -187,17 +203,20 @@ def train():
                     print(('[%3d] %7d |' + (' %s: %.3f |' * len(losses)) + ' T: %.3f | lr: %.5f | ETA: %s | current: %.3f')
                             % tuple([epoch, iteration] + loss_labels + [total, cur_lr, eta_str, elapsed]), flush=True)
 
-                if iteration == cfg.max_iter:
+                if iteration >= cfg.max_iter:
                     break
 
-            net.module.save_weights(f'weights/{cfg.name}_{epoch}_{iteration}.pth')
-            print(f'\nModel saved in weights: {cfg.name}_{epoch}_{iteration}.pth')
+                if args.val_interval > 0 and iteration % args.val_interval == 0:
+                    net.module.save_weights(f'weights/{cfg.name}_{epoch}_{iteration}.pth')
+                    print(f'\nModel has been saved: {cfg.name}_{epoch}_{iteration}.pth')
 
-            table = compute_val_map(net.module)
-            map_tables.append((iteration, table))
+                    remove_pth()
+
+                    table = compute_val_map(net.module)
+                    map_tables.append((iteration, table))
 
     except KeyboardInterrupt:
-        print(f'\nKeyboardInterrupt, saving network at epoch: {epoch}, iteration: {iteration}.\n\n')
+        print(f'\nStopped, saving network at epoch: {epoch}, iteration: {iteration}.\n\n')
         net.module.save_weights(f'weights/{cfg.name}_{epoch}_{iteration}.pth')
 
         val_result(map_tables)
