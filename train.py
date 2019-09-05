@@ -111,8 +111,8 @@ def train():
 
     if args.resume is not None:
         net.load_weights(args.resume)
-        resume_epoch = args.resume.split('.')[0].split('_')[2]
-        resume_iter = args.resume.split('.')[0].split('_')[3]
+        resume_epoch = int(args.resume.split('.')[0].split('_')[2])
+        resume_iter = int(args.resume.split('.')[0].split('_')[3])
         print(f'\nResume training at epoch: {resume_epoch}, iteration: {resume_iter}.')
     else:
         net.init_weights(backbone_path='weights/' + cfg.backbone.path)
