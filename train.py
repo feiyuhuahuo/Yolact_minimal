@@ -135,7 +135,7 @@ def train():
     iteration = resume_iter if args.resume else 0
     start_epoch = iteration // epoch_size
     end_epoch = cfg.max_iter // epoch_size + 1
-    remain = iteration % epoch_size
+    remain = epoch_size - (iteration % epoch_size)
 
     data_loader = data.DataLoader(dataset,
                                   args.batch_size,
