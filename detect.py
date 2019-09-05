@@ -4,7 +4,6 @@ from modules.build_yolact import Yolact
 from utils.augmentations import FastBaseTransform
 from utils.functions import MovingAverage, ProgressBar
 from utils import timer
-from utils.functions import SavePath
 from utils.output_utils import postprocess, NMS
 from data.config import cfg, set_cfg, COLORS
 import torch
@@ -142,7 +141,7 @@ def video(net: Yolact, in_path: str):
     num_frames = round(vid.get(cv2.CAP_PROP_FRAME_COUNT))
 
     name = in_path.split('/')[-1]
-    out = cv2.VideoWriter(f'results/videos/{name}', cv2.VideoWriter_fourcc(*"mp4v"), target_fps, (frame_width, frame_height))
+    out = cv2.VideoWriter(f'{video_path}/{name}', cv2.VideoWriter_fourcc(*"mp4v"), target_fps, (frame_width, frame_height))
 
     transform = FastBaseTransform()
     frame_times = MovingAverage()
@@ -183,11 +182,11 @@ if __name__ == '__main__':
     color_cache = defaultdict(lambda: {})
 
     if args.config is None:
-        model_path = SavePath.from_str(args.trained_model)
-        config = model_path.model_name + '_config'
-        print(f'Config not specified. Parsed \'{config}\' from the file name.\n')
-        set_cfg(config)
-        
+        piece = args.trained_model.split('/')[1].split('_')
+        name = f'{piece[0]}_{piece[1]}_config'
+        print(f'Config not specified. Parsed \'{name}\' from the checkpoint name.\n')
+        set_cfg(name)
+
     img_path = 'results/images'
     video_path = 'results/videos'
     if not os.path.exists(img_path):
@@ -226,7 +225,7 @@ if __name__ == '__main__':
                 batch = FastBaseTransform()(frame.unsqueeze(0))
                 preds = net(batch)
                 img_numpy = prep_display(nms(preds), frame, img_name=name)
-                cv2.imwrite(f'{save_path}/{name}', img_numpy)
+                cv2.imwrite(f'{img_path}/{name}', img_numpy)
                 print(f'{i+1}/{num}', end='\r')
 
             print('\nDone.')
