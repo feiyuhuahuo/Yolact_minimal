@@ -1,7 +1,6 @@
 """ Contains functions used to sanitize and prepare the output of Yolact. """
 import torch.nn.functional as F
-import cv2
-from data.config import cfg, MEANS, STD
+from data.config import cfg
 from utils.box_utils import crop, sanitize_coordinates
 import torch
 from utils.box_utils import decode, jaccard
@@ -180,20 +179,6 @@ class NMS(object):
 
 def postprocess(dets, w, h, interpolation_mode='bilinear', visualize_lincomb=False,
                 crop_masks=True, score_threshold=0, img_name=None):
-    """
-    Args:
-        - det_output: The lost of dicts that Detect outputs.
-        - w: The real with of the image.
-        - h: The real height of the image.
-        - batch_idx: If you have multiple images for this batch, the image's index in the batch.
-        - interpolation_mode: Can be 'nearest' | 'area' | 'bilinear' (see torch.nn.functional.interpolate)
-
-    Returns 4 torch Tensors (in the following order):
-        - classes [num_det]: The class idx for each detection.
-        - scores  [num_det]: The confidence score for each detection.
-        - boxes   [num_det, 4]: The bounding box for each detection in absolute point form.
-        - masks   [num_det, h, w]: Full image masks for each detection.
-    """
     
     if dets is None:
         return [torch.Tensor()] * 4  # Warning, this is 4 copies of the same thing
@@ -210,8 +195,7 @@ def postprocess(dets, w, h, interpolation_mode='bilinear', visualize_lincomb=Fal
 
     # im_w and im_h when it concerns bboxes. This is a workaround hack for preserve_aspect_ratio
     b_w, b_h = (w, h)
-    
-    # Actually extract everything from dets now
+
     classes = dets['class']
     boxes   = dets['box']
     scores  = dets['score']

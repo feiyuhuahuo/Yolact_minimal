@@ -109,16 +109,6 @@ def match(pos_thresh, neg_thresh, box_gt, priors, class_gt, crowd_boxes):
 
 
 def encode(matched, priors):
-    """
-    Encode bboxes matched with each prior into the format
-    produced by the network. See decode for more details on
-    this format. Note that encode(decode(x, p), p) = x.
-    
-    Args:
-        - matched: A tensor of bboxes in point form with shape [num_priors, 4]
-        - priors:  The tensor of all priors with shape [num_priors, 4]
-    Return: A tensor with encoded relative coordinates. Size: [num_priors, 4]
-    """
     variances = [0.1, 0.2]
 
     g_cxcy = (matched[:, :2] + matched[:, 2:])/2 - priors[:, :2]    # 10 * (Xg - Xa) / Wa
@@ -149,13 +139,6 @@ def decode(loc, priors):
     
     Also note that prior_x and prior_y are center coordinates which
     is why we have to subtract .5 from sigmoid(pred_x and pred_y).
-    
-    Args:
-        - loc:    The predicted bounding boxes of size [num_priors, 4]
-        - priors: The priorbox coords with size [num_priors, 4]
-    
-    Returns: A tensor of decoded relative coordinates in point form 
-             form with size [num_priors, 4]
     """
     variances = [0.1, 0.2]
 

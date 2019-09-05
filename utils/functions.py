@@ -1,4 +1,3 @@
-import os
 import math
 from collections import deque
 
@@ -78,25 +77,3 @@ class ProgressBar:
     def __str__(self):
         return self.string
 
-
-class SavePath:
-
-    def __init__(self, model_name: str, epoch: int, iteration: int):
-        self.model_name = model_name
-        self.epoch = epoch
-        self.iteration = iteration
-
-    @staticmethod
-    def from_str(path: str):
-        file_name = os.path.basename(path)
-        
-        if file_name.endswith('.pth'):
-            file_name = file_name[:-4]
-        
-        params = file_name.split('_')
-
-        model_name = '_'.join(params[:-2])
-        epoch = params[-2]
-        iteration = params[-1]
-        
-        return SavePath(model_name, int(epoch), int(iteration))
