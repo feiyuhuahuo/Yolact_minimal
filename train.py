@@ -5,7 +5,7 @@ from modules.build_yolact import Yolact
 import time
 import torch
 from modules.multi_loss import Multi_Loss
-from data.config import set_cfg, cfg, MEANS
+from data.config import set_cfg, cfg
 from data.coco import COCODetection
 from torch.autograd import Variable
 import torch.nn as nn
@@ -73,7 +73,7 @@ def compute_val_map(yolact_net):
     with torch.no_grad():
         val_dataset = COCODetection(image_path=cfg.dataset.valid_images,
                                     info_file=cfg.dataset.valid_info,
-                                    augmentation=BaseTransform(MEANS))
+                                    augmentation=BaseTransform())
         yolact_net.eval()
         print("\nComputing validation mAP...", flush=True)
         table = eval.evaluate(yolact_net, val_dataset, during_training=True)
@@ -101,7 +101,7 @@ def remove_pth():
 def train():
     dataset = COCODetection(image_path=cfg.dataset.train_images,
                             info_file=cfg.dataset.train_info,
-                            augmentation=SSDAugmentation(MEANS))
+                            augmentation=SSDAugmentation())
 
     net = Yolact()
     net.train()
