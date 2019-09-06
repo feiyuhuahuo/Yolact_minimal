@@ -72,8 +72,7 @@ class Pad(object):
 
     Note: this expects im_w <= width and im_h <= height
     """
-    def __init__(self, width, height, mean=MEANS, pad_gt=True):
-        self.mean = mean
+    def __init__(self, width, height, pad_gt=True):
         self.width = width
         self.height = height
         self.pad_gt = pad_gt
@@ -82,7 +81,7 @@ class Pad(object):
         im_h, im_w, depth = image.shape
 
         expand_image = np.zeros((self.height, self.width, depth), dtype=image.dtype)
-        expand_image[:, :, :] = self.mean
+        expand_image[:, :, :] = MEANS
         expand_image[:im_h, :im_w] = image
 
         if self.pad_gt:
@@ -344,8 +343,8 @@ class RandomSampleCrop(object):
 
 class Expand(object):
     # Have a chance to scale down the image and pad (to emulate smaller detections)
-    def __init__(self, mean):
-        self.mean = mean
+    def __init__(self):
+        pass
 
     def __call__(self, image, masks, boxes, labels):
         if random.randint(2):
@@ -357,7 +356,7 @@ class Expand(object):
         top = random.uniform(0, height*ratio - height)
 
         expand_image = np.zeros((int(height*ratio), int(width*ratio), depth), dtype=image.dtype)
-        expand_image[:, :, :] = self.mean
+        expand_image[:, :, :] = MEANS
         expand_image[int(top):int(top + height), int(left):int(left + width)] = image
         image = expand_image
 
@@ -413,14 +412,14 @@ class BackboneTransform(object):
     Transforms a BRG image made of floats in the range [0, 255] to whatever
     input the current backbone network needs.
     """
-    def __init__(self, transform, mean, std, in_channel_order):
-        self.mean = np.array(mean, dtype=np.float32)
-        self.std  = np.array(std,  dtype=np.float32)
-        self.transform = transform
+    def __init__(self, in_channel_order):
+        self.mean = np.array(MEANS, dtype=np.float32)
+        self.std  = np.array(STD,  dtype=np.float32)
+        self.transform = cfg.backbone.transform
 
         # Here I use "Algorithms and Coding" to convert string permutations to numbers
         self.channel_map = {c: idx for idx, c in enumerate(in_channel_order)}
-        self.channel_permutation = [self.channel_map[c] for c in transform.channel_order]
+        self.channel_permutation = [self.channel_map[c] for c in self.transform.channel_order]
 
     def __call__(self, img, masks=None, boxes=None, labels=None):
 
@@ -441,11 +440,11 @@ class BackboneTransform(object):
 class BaseTransform(object):
     """ Transorm to be used when evaluating. """
 
-    def __init__(self, mean=MEANS, std=STD):
+    def __init__(self):
         self.augment = Compose([ConvertFromInts(),
                                 Resize(resize_gt=False),
-                                Pad(cfg.max_size, cfg.max_size, mean, pad_gt=False),
-                                BackboneTransform(cfg.backbone.transform, mean, std, 'BGR')])
+                                Pad(cfg.max_size, cfg.max_size, pad_gt=False),
+                                BackboneTransform('BGR')])
 
     def __call__(self, img, masks=None, boxes=None, labels=None):
         return self.augment(img, masks, boxes, labels)
@@ -490,18 +489,17 @@ class FastBaseTransform(torch.nn.Module):
 
 
 class SSDAugmentation(object):
-    def __init__(self, mean=MEANS, std=STD):
-
+    def __init__(self):
         self.augment = Compose([ConvertFromInts(),
                                 ToAbsoluteCoords(),
                                 PhotometricDistort(),
-                                Expand(mean),
+                                Expand(),
                                 RandomSampleCrop(),
                                 RandomMirror(),
                                 Resize(),
-                                Pad(cfg.max_size, cfg.max_size, mean),
+                                Pad(cfg.max_size, cfg.max_size),
                                 ToPercentCoords(),
-                                BackboneTransform(cfg.backbone.transform, mean, std, 'BGR')])
+                                BackboneTransform('BGR')])
 
     def __call__(self, img, masks, boxes, labels):
         return self.augment(img, masks, boxes, labels)
