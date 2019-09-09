@@ -80,13 +80,16 @@ def compute_val_map(yolact_net):
         yolact_net.train()
         return table
 
-def val_result(map_tables):
-    print('Validation results during training:\n')
-    for iteration, table in map_tables:
-        print(f'iteration: {iteration}')
+def print_result(map_tables):
+    print('\nValidation results during training:\n')
+    for info, table in map_tables:
+        print(info)
         print(table, '\n')
 
-def remove_pth():
+
+def save_weights(net, epoch, iteration):
+    net.module.save_weights(f'weights/{cfg.name}_{epoch}_{iteration}.pth')
+
     path_list = os.listdir('weights')
     path_list = [aa for aa in path_list if 'yolact_base' in aa]
     path_list.remove('yolact_base_54_800000.pth')
@@ -139,14 +142,14 @@ def train():
 
     data_loader = data.DataLoader(dataset,
                                   args.batch_size,
-                                  num_workers=4,
+                                  num_workers=1,
                                   shuffle=True,
                                   collate_fn=detection_collate,
                                   pin_memory=True)
 
     time_avg = MovingAverage()
     loss_types = ['B', 'C', 'M', 'S']
-    loss_avgs  = {k: MovingAverage(100) for k in loss_types}
+    loss_avgs = {k: MovingAverage(100) for k in loss_types}
     map_tables = []
 
     print('Begin training!\n')
@@ -156,6 +159,7 @@ def train():
             for i, datum in enumerate(data_loader):
                 torch.cuda.synchronize()
                 train_start = time.time()
+
                 if args.resume and epoch == start_epoch and i >= remain:
                     break
 
@@ -173,22 +177,19 @@ def train():
                 images, box_classes, masks_gt, num_crowds = data_to_device(datum)
 
                 predictions = net(images)
-                optimizer.zero_grad()
 
                 losses = criterion(predictions, box_classes, masks_gt, num_crowds)
                 losses = {k: v.mean() for k, v in losses.items()}    # Mean here because Dataparallel
                 loss = sum([losses[k] for k in losses])
 
+                optimizer.zero_grad()
                 loss.backward()    # Do this to free up vram even if loss is not finite
-
                 if torch.isfinite(loss).item():
                     optimizer.step()
-                
+
                 # Add the loss to the moving average for bookkeeping
                 for k in losses:
                     loss_avgs[k].add(losses[k].item())
-
-                cur_lr = optimizer.param_groups[0]['lr']
 
                 torch.cuda.synchronize()
                 train_end = time.time()
@@ -196,6 +197,7 @@ def train():
                 time_avg.add(elapsed)
 
                 if iteration % 10 == 0:
+                    cur_lr = optimizer.param_groups[0]['lr']
                     eta_str = str(datetime.timedelta(seconds=(cfg.max_iter-iteration) * time_avg.get_avg())).split('.')[0]
                     total = sum([loss_avgs[k].get_avg() for k in losses])
                     loss_labels = sum([[k, loss_avgs[k].get_avg()] for k in loss_types if k in losses], [])
@@ -207,25 +209,25 @@ def train():
                     break
 
                 if args.val_interval > 0 and iteration % args.val_interval == 0:
-                    net.module.save_weights(f'weights/{cfg.name}_{epoch}_{iteration}.pth')
-                    print(f'\nModel has been saved: {cfg.name}_{epoch}_{iteration}.pth')
+                    print(f'Saving network at epoch: {epoch}, iteration: {iteration}.\n')
+                    save_weights(net, epoch, iteration)
 
-                    remove_pth()
-
+                    info = (('iteration: %7d |' + (' %s: %.3f |' * len(losses)) + ' T: %.3f | lr: %.5f')
+                            % tuple([iteration] + loss_labels + [total, cur_lr]))
                     table = compute_val_map(net.module)
-                    map_tables.append((iteration, table))
+                    map_tables.append((info, table))
 
     except KeyboardInterrupt:
-        print(f'\nStopped, saving network at epoch: {epoch}, iteration: {iteration}.\n\n')
-        net.module.save_weights(f'weights/{cfg.name}_{epoch}_{iteration}.pth')
+        print(f'\nStopped, saving network at epoch: {epoch}, iteration: {iteration}.\n')
+        save_weights(net, epoch, iteration)
 
-        val_result(map_tables)
+        print_result(map_tables)
         exit()
 
     print(f'Training completed, saving network at epoch: {epoch}, iteration: {iteration}.\n')
-    net.module.save_weights(f'weights/{cfg.name}_{epoch}_{iteration}.pth')
+    save_weights(net, epoch, iteration)
 
-    val_result(map_tables)
+    print_result(map_tables)
 
 
 if __name__ == '__main__':
