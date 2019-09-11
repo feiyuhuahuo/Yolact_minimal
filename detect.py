@@ -5,7 +5,7 @@ from utils.augmentations import FastBaseTransform
 from utils.functions import MovingAverage, ProgressBar
 from utils import timer
 from utils.output_utils import postprocess, NMS
-from data.config import cfg, set_cfg, COLORS
+from data.config import cfg, COLORS
 import torch
 import torch.backends.cudnn as cudnn
 import argparse
@@ -180,12 +180,6 @@ def video(net: Yolact, in_path: str):
 if __name__ == '__main__':
     parse_args()
     color_cache = defaultdict(lambda: {})
-
-    if args.config is None:
-        piece = args.trained_model.split('/')[1].split('_')
-        name = f'{piece[0]}_{piece[1]}_config'
-        print(f'Config not specified. Parsed \'{name}\' from the checkpoint name.\n')
-        set_cfg(name)
 
     img_path = 'results/images'
     video_path = 'results/videos'
