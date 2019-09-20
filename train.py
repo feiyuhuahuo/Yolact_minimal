@@ -147,7 +147,7 @@ def train():
                                   collate_fn=detection_collate,
                                   pin_memory=True)
 
-    time_avg = MovingAverage()
+    batch_time = MovingAverage()
     loss_types = ['B', 'C', 'M', 'S']
     loss_avgs = {k: MovingAverage(100) for k in loss_types}
     map_tables = []
@@ -158,7 +158,7 @@ def train():
         for epoch in range(start_epoch, end_epoch):
             for i, datum in enumerate(data_loader):
                 torch.cuda.synchronize()
-                train_start = time.time()
+                data_start = time.time()
 
                 if args.resume and epoch == start_epoch and i >= remain:
                     break
@@ -171,12 +171,23 @@ def train():
                 # Adjust the learning rate at the given iterations, but also if we resume from past that iteration
                 while step_index < len(cfg.lr_steps) and iteration >= cfg.lr_steps[step_index]:
                     step_index += 1
-                    # lr' = lr * 0.1 ^ step_index
                     set_lr(optimizer, args.lr * (0.1 ** step_index))
 
                 images, box_classes, masks_gt, num_crowds = data_to_device(datum)
 
+                torch.cuda.synchronize()
+                data_end = time.time()
+
                 predictions = net(images)
+
+                torch.cuda.synchronize()
+                forward_end = time.time()
+                data_elapsed = data_end - data_start
+                forward_elapsed = forward_end - data_end
+                if not (i == 0 and epoch == start_epoch):
+                    total_elapsed = forward_end - temp
+                    batch_time.add(total_elapsed)
+                temp = forward_end
 
                 losses = criterion(predictions, box_classes, masks_gt, num_crowds)
                 losses = {k: v.mean() for k, v in losses.items()}    # Mean here because Dataparallel
@@ -191,19 +202,14 @@ def train():
                 for k in losses:
                     loss_avgs[k].add(losses[k].item())
 
-                torch.cuda.synchronize()
-                train_end = time.time()
-                elapsed = train_end - train_start
-                time_avg.add(elapsed)
-
                 if iteration % 10 == 0:
                     cur_lr = optimizer.param_groups[0]['lr']
-                    eta_str = str(datetime.timedelta(seconds=(cfg.max_iter-iteration) * time_avg.get_avg())).split('.')[0]
+                    eta_str = str(datetime.timedelta(seconds=(cfg.max_iter-iteration) * batch_time.get_avg())).split('.')[0]
                     total = sum([loss_avgs[k].get_avg() for k in losses])
                     loss_labels = sum([[k, loss_avgs[k].get_avg()] for k in loss_types if k in losses], [])
 
-                    print(('[%3d] %7d |' + (' %s: %.3f |' * len(losses)) + ' T: %.3f | lr: %.5f | ETA: %s | current: %.3f')
-                            % tuple([epoch, iteration] + loss_labels + [total, cur_lr, eta_str, elapsed]), flush=True)
+                    print(('[%3d] %7d |' + (' %s: %.3f |' * len(losses)) + ' T: %.3f | lr: %.5f | t_data: %.3f | t_forward: %.3f | t_total: %.3f | ETA: %s')
+                            % tuple([epoch, iteration] + loss_labels + [total, cur_lr, data_elapsed, forward_elapsed, total_elapsed, eta_str]), flush=True)
 
                 if iteration >= cfg.max_iter:
                     break
