@@ -7,7 +7,9 @@ from typing import List
 from data.config import cfg
 from modules.backbone import construct_backbone
 from utils import timer
+
 torch.cuda.current_device()
+
 
 class Concat(nn.Module):
     def __init__(self, nets, extra_params):
@@ -15,15 +17,16 @@ class Concat(nn.Module):
 
         self.nets = nn.ModuleList(nets)
         self.extra_params = extra_params
-    
+
     def forward(self, x):
-        # Concat each along the channel dimension
         return torch.cat([net(x) for net in self.nets], dim=1, **self.extra_params)
+
 
 class InterpolateModule(nn.Module):
     """
     A module version of F.interpolate.
     """
+
     def __init__(self, *args, **kwdargs):
         super().__init__()
 
@@ -33,12 +36,8 @@ class InterpolateModule(nn.Module):
     def forward(self, x):
         return F.interpolate(x, *self.args, **self.kwdargs)
 
+
 def make_net(in_channels, cfg_net, include_last_relu=True):
-    """
-    A helper function to take a config setting and turn it into a network. Used by protonet and extra head.
-    return:
-        network, out_channels
-    """
     def make_layer(layer_cfg):
         nonlocal in_channels
 
@@ -63,7 +62,8 @@ def make_net(in_channels, cfg_net, include_last_relu=True):
 
             else:
                 if num_channels is None:
-                    layer = InterpolateModule(scale_factor=-kernel_size, mode='bilinear', align_corners=False, **layer_cfg[2])
+                    layer = InterpolateModule(scale_factor=-kernel_size, mode='bilinear', align_corners=False,
+                                              **layer_cfg[2])
                 else:
                     layer = nn.ConvTranspose2d(in_channels, num_channels, -kernel_size, **layer_cfg[2])
 
@@ -72,7 +72,7 @@ def make_net(in_channels, cfg_net, include_last_relu=True):
         return [layer, nn.ReLU(inplace=True)]
 
     # Use sum to concat all the component layer lists
-    net = sum([make_layer(x) for x in cfg_net], [])    # x: (256, 3, {'padding': 1})
+    net = sum([make_layer(x) for x in cfg_net], [])  # x: (256, 3, {'padding': 1})
 
     if not include_last_relu:
         net = net[:-1]
@@ -85,8 +85,8 @@ class PredictionModule(nn.Module):
         super().__init__()
 
         self.num_classes = cfg.num_classes
-        self.coef_dim    = cfg.coef_dim
-        self.num_priors  = len(cfg.backbone.aspect_ratios)
+        self.coef_dim = cfg.coef_dim
+        self.num_priors = len(cfg.backbone.aspect_ratios)
 
         if cfg.extra_head_net is None:
             out_channels = in_channels
@@ -105,54 +105,46 @@ class PredictionModule(nn.Module):
         conf = self.conf_layer(x).permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, self.num_classes)
         coef = self.mask_layer(x).permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, self.coef_dim)
         coef = torch.tanh(coef)
-        
+
         return {'box': bbox, 'class': conf, 'coef': coef}
+
 
 class FPN(nn.Module):
     """
     Implements a general version of the FPN introduced in https://arxiv.org/pdf/1612.03144.pdf
-
-    - num_features (int): The number of output features in the fpn layers.
-    - interpolation_mode (str): The mode to pass to F.interpolate.
-    - num_downsample (int): The number of downsampled layers to add onto the selected layers.
-                            These extra layers are downsampled from the last selected layer.
     """
 
     def __init__(self, in_channels):
         super().__init__()
-        self.interpolation_mode  = cfg.fpn.interpolation_mode    # 'bilinear'
-        self.num_downsample      = cfg.fpn.num_downsample        # 2
-        self.conv_downsample = cfg.fpn.use_conv_downsample   # True
+        self.interpolation_mode = cfg.fpn.interpolation_mode  # 'bilinear'
+        self.num_downsample = cfg.fpn.num_downsample  # 2
+        self.conv_downsample = cfg.fpn.use_conv_downsample  # True
         self.num_features = cfg.fpn.num_features
         self.in_channels = in_channels
-        self.padding = cfg.fpn.pad  # for backwards compatability
+        self.padding = cfg.fpn.pad  # for backward compatability
 
-        self.lat_layers  = nn.ModuleList([nn.Conv2d(x, self.num_features, kernel_size=1) for x in reversed(self.in_channels)])
+        self.lat_layers = nn.ModuleList(
+            [nn.Conv2d(x, self.num_features, kernel_size=1) for x in reversed(self.in_channels)])
         # ModuleList((0): Conv2d(2048, 256, kernel_size=(1, 1), stride=(1, 1))
         #            (1): Conv2d(1024, 256, kernel_size=(1, 1), stride=(1, 1))
         #            (2): Conv2d(512, 256, kernel_size=(1, 1), stride=(1, 1)))
 
-        self.pred_layers = nn.ModuleList([nn.Conv2d(self.num_features, self.num_features, kernel_size=3, padding=self.padding)
-                                          for _ in self.in_channels])
+        self.pred_layers = nn.ModuleList(
+            [nn.Conv2d(self.num_features, self.num_features, kernel_size=3, padding=self.padding)
+             for _ in self.in_channels])
         # ModuleList((0): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
         #            (1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
         #            (2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
 
         if self.conv_downsample:
-            self.downsample_layers = nn.ModuleList([nn.Conv2d(self.num_features, self.num_features, kernel_size=3, padding=1, stride=2)
-                                                    for _ in range(self.num_downsample)])
+            self.downsample_layers = nn.ModuleList(
+                [nn.Conv2d(self.num_features, self.num_features, kernel_size=3, padding=1, stride=2)
+                 for _ in range(self.num_downsample)])
 
         # ModuleList((0): Conv2d(256, 256, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))  用于下采样
         #            (1): Conv2d(256, 256, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)))
 
     def forward(self, convouts: List[torch.Tensor]):
-        """
-        Args:
-            - convouts (list): A list of convouts for the corresponding layers in in_channels.
-        Returns:
-            - A list of FPN convouts in the same order as x with extra downsample layers if requested.
-        """
-
         out = []
         x = torch.zeros(1, device=convouts[0].device)
         for i in range(len(convouts)):
@@ -160,7 +152,7 @@ class FPN(nn.Module):
 
         # For backward compatability, the conv layers are stored in reverse but the input and output is
         # given in the correct order. Thus, use j=-i-1 for the input and output and i for the conv layers.
-        j = len(convouts)    # convouts: C3, C4, C5
+        j = len(convouts)  # convouts: C3, C4, C5
 
         for lat_layer in self.lat_layers:
             j -= 1
@@ -173,7 +165,6 @@ class FPN(nn.Module):
             x = x + lat_layer(convouts[j])
             out[j] = x
 
-        # This second loop is here because TorchScript.
         j = len(convouts)
         for pred_layer in self.pred_layers:
             j -= 1
@@ -185,10 +176,11 @@ class FPN(nn.Module):
                 out.append(downsample_layer(out[-1]))
         else:
             for i in range(self.num_downsample):
-                # Note: this is an untested alternative to out.append(out[-1][:, :, ::2, ::2]). Thanks TorchScript.
+                # Note: this is an untested alternative to out.append(out[-1][:, :, ::2, ::2]).
                 out.append(nn.functional.max_pool2d(out[-1], 1, stride=2))
 
         return out
+
 
 class Anchors:
     def __init__(self):
@@ -230,16 +222,13 @@ class Yolact(nn.Module):
     def __init__(self):
         super().__init__()
         self.backbone = construct_backbone(cfg.backbone)
-        # import torchsummary
-        # torchsummary.summary(self.backbone, (3, 550, 550))
-
         self.scales = cfg.backbone.scales
         self.aspect_scales = cfg.backbone.aspect_ratios
 
         if cfg.freeze_bn:
             self.freeze_bn()
 
-        in_channels = cfg.fpn.num_features    # 256
+        in_channels = cfg.fpn.num_features  # 256
 
         self.proto_net, cfg.coef_dim = make_net(in_channels, cfg.mask_proto_net, include_last_relu=False)
         '''  
@@ -275,12 +264,13 @@ class Yolact(nn.Module):
         '''
         self.anchor_list = [Anchors() for _ in self.selected_layers]
 
-        if cfg.use_semantic_segmentation_loss:    # True
-            self.semantic_seg_conv = nn.Conv2d(256, cfg.num_classes-1, kernel_size=1)    # Conv2d(256, 80, kernel_size=1)
+        if cfg.use_semantic_segmentation_loss:  # True
+            self.semantic_seg_conv = nn.Conv2d(256, cfg.num_classes - 1,
+                                               kernel_size=1)  # Conv2d(256, 80, kernel_size=1)
 
     def save_weights(self, path):
         torch.save(self.state_dict(), path)
-    
+
     def load_weights(self, path):
         state_dict = torch.load(path)
 
@@ -299,8 +289,6 @@ class Yolact(nn.Module):
         # Initialize the rest conv layers with xavier
         for name, module in self.named_modules():
             if isinstance(module, nn.Conv2d) and module not in self.backbone.backbone_modules:
-                # torch.manual_seed(10)
-                # torch.cuda.manual_seed(10)
                 nn.init.xavier_uniform_(module.weight.data)
 
                 if module.bias is not None:
@@ -340,14 +328,14 @@ class Yolact(nn.Module):
         '''
         with timer.env('proto'):
             # outs[0]: [2, 256, 69, 69], the feature map from P3
-            proto_out = self.proto_net(outs[0])    # proto_out: [2, 32, 138, 138]
+            proto_out = self.proto_net(outs[0])  # proto_out: [2, 32, 138, 138]
             proto_out = F.relu(proto_out, inplace=True)
             proto_out = proto_out.permute(0, 2, 3, 1).contiguous()
 
         with timer.env('pred_heads'):
             predictions = {'box': [], 'class': [], 'coef': [], 'priors': []}
 
-            for i in self.selected_layers:    # self.selected_layers [0, 1, 2, 3, 4]
+            for i in self.selected_layers:  # self.selected_layers [0, 1, 2, 3, 4]
                 p = self.prediction_layers[0](outs[i])
 
                 for k, v in p.items():
@@ -363,7 +351,7 @@ class Yolact(nn.Module):
         predictions['proto'] = proto_out
 
         if self.training:
-            if cfg.use_semantic_segmentation_loss:   # True
+            if cfg.use_semantic_segmentation_loss:  # True
                 predictions['segm'] = self.semantic_seg_conv(outs[0])
 
             return predictions
