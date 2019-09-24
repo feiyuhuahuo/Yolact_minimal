@@ -24,7 +24,8 @@ def parse_args(argv=None):
     parser.add_argument('--hide_bbox', default=False, action='store_true', help='Whether to display bboxes')
     parser.add_argument('--hide_score', default=False, action='store_true', help='Whether to display scores')
     parser.add_argument('--config', default=None, help='The config to use.')
-    parser.add_argument('--show_lincomb', default=False, action='store_true', help='Whether to show that how masks are created.')
+    parser.add_argument('--show_lincomb', default=False, action='store_true',
+                        help='Whether to show the generating process of masks.')
     parser.add_argument('--no_crop', default=False, action='store_true',
                         help='Do not crop output masks with the predicted bounding box.')
     parser.add_argument('--image_path', default=None, type=str, help='The folder of images for detecting.')
@@ -141,7 +142,8 @@ def video(net: Yolact, in_path: str):
     num_frames = round(vid.get(cv2.CAP_PROP_FRAME_COUNT))
 
     name = in_path.split('/')[-1]
-    out = cv2.VideoWriter(f'{video_path}/{name}', cv2.VideoWriter_fourcc(*"mp4v"), target_fps, (frame_width, frame_height))
+    out = cv2.VideoWriter(f'{video_path}/{name}', cv2.VideoWriter_fourcc(*"mp4v"), target_fps,
+                          (frame_width, frame_height))
 
     transform = FastBaseTransform()
     frame_times = MovingAverage()
@@ -220,7 +222,7 @@ if __name__ == '__main__':
                 preds = net(batch)
                 img_numpy = prep_display(nms(preds), frame, img_name=name)
                 cv2.imwrite(f'{img_path}/{name}', img_numpy)
-                print(f'{i+1}/{num}', end='\r')
+                print(f'{i + 1}/{num}', end='\r')
 
             print('\nDone.')
 

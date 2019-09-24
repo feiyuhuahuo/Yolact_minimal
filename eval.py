@@ -17,12 +17,14 @@ import os
 from terminaltables import AsciiTable
 from collections import OrderedDict
 
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description='YOLACT COCO Evaluation')
     parser.add_argument('--trained_model', default='weights/yolact_base_54_800000.pth', type=str)
     parser.add_argument('--top_k', default=5, type=int, help='Further restrict the number of predictions to parse')
     parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
-    parser.add_argument('--max_images', default=-1, type=int, help='The maximum number of images for test. Use -1 for all.')
+    parser.add_argument('--max_images', default=-1, type=int,
+                        help='The maximum number of images for test, set to -1 for all.')
     parser.add_argument('--output_coco_json', action='store_true', help='Dumps detections into the coco json file.')
     parser.add_argument('--config', default=None, help='The config object to use.')
     parser.add_argument('--benchmark', default=False, action='store_true', help='do benchmark')
@@ -52,10 +54,10 @@ class Make_json:
 
     def add_bbox(self, image_id: int, category_id: int, bbox: list, score: float):
         """ Note that bbox should be a list or tuple of (x1, y1, x2, y2) """
-        bbox = [bbox[0], bbox[1], bbox[2]-bbox[0], bbox[3]-bbox[1]]
+        bbox = [bbox[0], bbox[1], bbox[2] - bbox[0], bbox[3] - bbox[1]]
 
         # Round to the nearest 10th to avoid huge file sizes, as COCO suggests
-        bbox = [round(float(x)*10)/10 for x in bbox]
+        bbox = [round(float(x) * 10) / 10 for x in bbox]
 
         self.bbox_data.append({'image_id': int(image_id),
                                'category_id': self.coco_cats[int(category_id)],
@@ -80,6 +82,7 @@ class Make_json:
             with open(path, 'w') as f:
                 json.dump(data, f)
 
+
 def mask_iou(mask1, mask2, iscrowd=False):
     """
     Inputs inputs are matricies of size _ x N. Output is size _1 x _2.
@@ -101,10 +104,12 @@ def mask_iou(mask1, mask2, iscrowd=False):
 
     return ret.cpu()
 
+
 def bbox_iou(bbox1, bbox2, iscrowd=False):
     with timer.env('BBox IoU'):
         ret = jaccard(bbox1, bbox2, iscrowd)
     return ret.cpu()
+
 
 def prep_metrics(ap_data, dets, gt, gt_masks, h, w, num_crowd, image_id, make_json, coco_json):
     """ Returns a list of APs for this image, with each element being for a class  """
@@ -114,12 +119,12 @@ def prep_metrics(ap_data, dets, gt, gt_masks, h, w, num_crowd, image_id, make_js
             gt_boxes[:, [0, 2]] *= w
             gt_boxes[:, [1, 3]] *= h
             gt_classes = list(gt[:, 4].astype(int))
-            gt_masks = torch.Tensor(gt_masks).view(-1, h*w)
+            gt_masks = torch.Tensor(gt_masks).view(-1, h * w)
 
             if num_crowd > 0:
                 split = lambda x: (x[-num_crowd:], x[:-num_crowd])
-                crowd_boxes  , gt_boxes   = split(gt_boxes)
-                crowd_masks  , gt_masks   = split(gt_masks)
+                crowd_boxes, gt_boxes = split(gt_boxes)
+                crowd_masks, gt_masks = split(gt_masks)
                 crowd_classes, gt_classes = split(gt_classes)
 
     with timer.env('Postprocess'):
@@ -130,7 +135,7 @@ def prep_metrics(ap_data, dets, gt, gt_masks, h, w, num_crowd, image_id, make_js
 
         classes = list(classes.cpu().numpy().astype(int))
         scores = list(scores.cpu().numpy().astype(float))
-        masks = masks.view(-1, h*w).cuda()
+        masks = masks.view(-1, h * w).cuda()
         boxes = boxes.cuda()
 
     if coco_json:
@@ -145,10 +150,10 @@ def prep_metrics(ap_data, dets, gt, gt_masks, h, w, num_crowd, image_id, make_js
                     make_json.add_mask(image_id, classes[i], masks[i, :, :], scores[i])
 
             return
-    
+
     with timer.env('Eval Setup'):
         num_pred = len(classes)
-        num_gt   = len(gt_classes)
+        num_gt = len(gt_classes)
 
         mask_iou_cache = mask_iou(masks, gt_masks)
         bbox_iou_cache = bbox_iou(boxes.float(), gt_boxes.float())
@@ -160,13 +165,13 @@ def prep_metrics(ap_data, dets, gt, gt_masks, h, w, num_crowd, image_id, make_js
             crowd_mask_iou_cache = None
             crowd_bbox_iou_cache = None
 
-        iou_types = [('box',  lambda i, j: bbox_iou_cache[i, j].item(), lambda i, j: crowd_bbox_iou_cache[i, j].item()),
+        iou_types = [('box', lambda i, j: bbox_iou_cache[i, j].item(), lambda i, j: crowd_bbox_iou_cache[i, j].item()),
                      ('mask', lambda i, j: mask_iou_cache[i, j].item(), lambda i, j: crowd_mask_iou_cache[i, j].item())]
 
     timer.start('Main loop')
     for _class in set(classes + gt_classes):
         num_gt_for_class = sum([1 for x in gt_classes if x == _class])
-        
+
         for iouIdx in range(len(iou_thresholds)):
             iou_threshold = iou_thresholds[iouIdx]
 
@@ -178,19 +183,19 @@ def prep_metrics(ap_data, dets, gt, gt_masks, h, w, num_crowd, image_id, make_js
                 for i in range(num_pred):
                     if classes[i] != _class:
                         continue
-                    
+
                     max_iou_found = iou_threshold
                     max_match_idx = -1
                     for j in range(num_gt):
                         if gt_used[j] or gt_classes[j] != _class:
                             continue
-                            
+
                         iou = iou_func(i, j)
 
                         if iou > max_iou_found:
                             max_iou_found = iou
                             max_match_idx = j
-                    
+
                     if max_match_idx >= 0:
                         gt_used[max_match_idx] = True
                         ap_obj.push(scores[i], True)
@@ -202,7 +207,7 @@ def prep_metrics(ap_data, dets, gt, gt_masks, h, w, num_crowd, image_id, make_js
                             for j in range(len(crowd_classes)):
                                 if crowd_classes[j] != _class:
                                     continue
-                                
+
                                 iou = crowd_func(i, j)
 
                                 if iou > iou_threshold:
@@ -228,7 +233,7 @@ class APDataObject:
 
     def push(self, score: float, is_true: bool):
         self.data_points.append((score, is_true))
-    
+
     def add_gt_positives(self, num_positives: int):
         """ Call this once per image. """
         self.num_gt_positives += num_positives
@@ -246,8 +251,8 @@ class APDataObject:
         self.data_points.sort(key=lambda x: -x[0])
 
         precisions = []
-        recalls    = []
-        num_true  = 0
+        recalls = []
+        num_true = 0
         num_false = 0
 
         # Compute the precision-recall curve. The x axis is recalls and the y axis precisions.
@@ -257,9 +262,9 @@ class APDataObject:
                 num_true += 1
             else:
                 num_false += 1
-            
+
             precision = num_true / (num_true + num_false)
-            recall    = num_true / self.num_gt_positives
+            recall = num_true / self.num_gt_positives
 
             precisions.append(precision)
             recalls.append(recall)
@@ -267,9 +272,9 @@ class APDataObject:
         # Smooth the curve by computing [max(precisions[i:]) for i in range(len(precisions))]
         # Basically, remove any temporary dips from the curve.
         # At least that's what I think, idk. COCOEval did it so I do too.
-        for i in range(len(precisions)-1, 0, -1):
-            if precisions[i] > precisions[i-1]:
-                precisions[i-1] = precisions[i]
+        for i in range(len(precisions) - 1, 0, -1):
+            if precisions[i] > precisions[i - 1]:
+                precisions[i - 1] = precisions[i]
 
         # Compute the integral of precision(recall) d_recall from recall=0->1 using fixed-length riemann summation with 101 bars.
         y_range = [0] * 101  # idx 0 is recall == 0.0 and idx 100 is recall == 1.00
@@ -300,7 +305,7 @@ def evaluate(net, dataset, during_training=False, trad_nms=False, max_img=-1, be
     if not benchmark:
         # For each class and iou, stores tuples (score, isPositive)
         # Index ap_data[type][iouIdx][classIdx]
-        ap_data = {'box' : [[APDataObject() for _ in cfg.dataset.class_names] for _ in iou_thresholds],
+        ap_data = {'box': [[APDataObject() for _ in cfg.dataset.class_names] for _ in iou_thresholds],
                    'mask': [[APDataObject() for _ in cfg.dataset.class_names] for _ in iou_thresholds]}
         make_json = Make_json()
     else:
@@ -329,7 +334,7 @@ def evaluate(net, dataset, during_training=False, trad_nms=False, max_img=-1, be
             else:
                 prep_metrics(ap_data, nms(predictions), gt, gt_masks, h, w, num_crowd,
                              dataset.ids[image_idx], make_json, coco_json)
-            
+
             # First couple of images take longer because we're constructing the graph.
             # Since that's technically initialization, don't include those in the FPS calculations.
             fps = 0
@@ -337,16 +342,17 @@ def evaluate(net, dataset, during_training=False, trad_nms=False, max_img=-1, be
                 frame_times.add(timer.total_time())
                 fps = 1 / frame_times.get_avg()
 
-            progress = (i+1) / dataset_size * 100
-            progress_bar.set_val(i+1)
-            print('\rProcessing Images  %s %6d / %6d (%5.2f%%)    %5.2f fps    ' % (repr(progress_bar), i+1, dataset_size, progress, fps), end='')
+            progress = (i + 1) / dataset_size * 100
+            progress_bar.set_val(i + 1)
+            print('\rProcessing Images  %s %6d / %6d (%5.2f%%)    %5.2f fps    ' % (
+            repr(progress_bar), i + 1, dataset_size, progress, fps), end='')
 
         if benchmark:
             print('\n\n')
             print('Stats for the last frame:')
             timer.print_stats()
             avg_seconds = frame_times.get_avg()
-            print('Average: %5.2f fps, %5.2f ms' % (1 / frame_times.get_avg(), 1000*avg_seconds))
+            print('Average: %5.2f fps, %5.2f ms' % (1 / frame_times.get_avg(), 1000 * avg_seconds))
 
         else:
             if coco_json:
@@ -380,8 +386,8 @@ def calc_map(ap_data):
         all_maps[iou_type]['all'] = 0  # Make this first in the ordereddict
         for i, threshold in enumerate(iou_thresholds):
             mAP = sum(aps[i][iou_type]) / len(aps[i][iou_type]) * 100 if len(aps[i][iou_type]) > 0 else 0
-            all_maps[iou_type][int(threshold*100)] = mAP
-        all_maps[iou_type]['all'] = (sum(all_maps[iou_type].values()) / (len(all_maps[iou_type].values())-1))
+            all_maps[iou_type][int(threshold * 100)] = mAP
+        all_maps[iou_type]['all'] = (sum(all_maps[iou_type].values()) / (len(all_maps[iou_type].values()) - 1))
 
     row1 = list(all_maps['box'].keys())
     row1.insert(0, ' ')
@@ -397,6 +403,7 @@ def calc_map(ap_data):
     table = [row1, row2, row3]
     table = AsciiTable(table)
     return table.table
+
 
 iou_thresholds = [x / 100 for x in range(50, 100, 5)]
 cuda = torch.cuda.is_available()
