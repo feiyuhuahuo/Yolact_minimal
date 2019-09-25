@@ -140,12 +140,8 @@ def train():
     end_epoch = cfg.max_iter // epoch_size + 1
     remain = epoch_size - (iteration % epoch_size)
 
-    data_loader = data.DataLoader(dataset,
-                                  args.batch_size,
-                                  num_workers=1,
-                                  shuffle=True,
-                                  collate_fn=detection_collate,
-                                  pin_memory=True)
+    data_loader = data.DataLoader(dataset,  args.batch_size, num_workers=8, shuffle=True,
+                                  collate_fn=detection_collate, pin_memory=True)
 
     batch_time = MovingAverage()
     loss_types = ['B', 'C', 'M', 'S']
@@ -157,9 +153,6 @@ def train():
     try:
         for epoch in range(start_epoch, end_epoch):
             for i, datum in enumerate(data_loader):
-                torch.cuda.synchronize()
-                data_start = time.time()
-
                 if args.resume and epoch == start_epoch and i >= remain:
                     break
 
@@ -176,18 +169,12 @@ def train():
                 images, box_classes, masks_gt, num_crowds = data_to_device(datum)
 
                 torch.cuda.synchronize()
-                data_end = time.time()
+                forward_start = time.time()
 
                 predictions = net(images)
 
                 torch.cuda.synchronize()
                 forward_end = time.time()
-                data_elapsed = data_end - data_start
-                forward_elapsed = forward_end - data_end
-                if not (i == 0 and epoch == start_epoch):
-                    total_elapsed = forward_end - temp
-                    batch_time.add(total_elapsed)
-                temp = forward_end
 
                 losses = criterion(predictions, box_classes, masks_gt, num_crowds)
                 losses = {k: v.mean() for k, v in losses.items()}    # Mean here because Dataparallel
@@ -202,17 +189,22 @@ def train():
                 for k in losses:
                     loss_avgs[k].add(losses[k].item())
 
+                grad_end = time.time()
+                if not (i == 0 and epoch == start_epoch):
+                    iter_time = grad_end - temp
+                    batch_time.add(iter_time)
+                temp = grad_end
+
                 if iteration % 10 == 0:
                     cur_lr = optimizer.param_groups[0]['lr']
                     eta_str = str(datetime.timedelta(seconds=(cfg.max_iter-iteration) * batch_time.get_avg())).split('.')[0]
                     total = sum([loss_avgs[k].get_avg() for k in losses])
                     loss_labels = sum([[k, loss_avgs[k].get_avg()] for k in loss_types if k in losses], [])
 
+                    forward_time = forward_end - forward_start
+                    data_time = iter_time - (grad_end - forward_start)
                     print(('[%3d] %7d |' + (' %s: %.3f |' * len(losses)) + ' T: %.3f | lr: %.5f | t_data: %.3f | t_forward: %.3f | t_total: %.3f | ETA: %s')
-                            % tuple([epoch, iteration] + loss_labels + [total, cur_lr, data_elapsed, forward_elapsed, total_elapsed, eta_str]), flush=True)
-
-                if iteration >= cfg.max_iter:
-                    break
+                            % tuple([epoch, iteration] + loss_labels + [total, cur_lr, data_time, forward_time, iter_time, eta_str]), flush=True)
 
                 if args.val_interval > 0 and iteration % args.val_interval == 0:
                     print(f'Saving network at epoch: {epoch}, iteration: {iteration}.\n')
