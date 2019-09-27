@@ -299,7 +299,7 @@ def evaluate(net, dataset, during_training=False, trad_nms=False, max_img=-1, be
 
     frame_times = MovingAverage()
     dataset_size = len(dataset) if max_img < 0 else min(max_img, len(dataset))
-    progress_bar = ProgressBar(30, dataset_size)
+    progress_bar = ProgressBar(40, dataset_size)
 
     print()
     if not benchmark:
@@ -344,7 +344,7 @@ def evaluate(net, dataset, during_training=False, trad_nms=False, max_img=-1, be
 
             progress = (i + 1) / dataset_size * 100
             progress_bar.set_val(i + 1)
-            print('\rProcessing Images  %s %6d / %6d (%5.2f%%)    %5.2f fps    ' % (
+            print('\rProcessing:  %s  %d / %d (%.2f%%)  %.2f fps  ' % (
             repr(progress_bar), i + 1, dataset_size, progress, fps), end='')
 
         if benchmark:
