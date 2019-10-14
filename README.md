@@ -43,7 +43,7 @@ The results should be:
 
 ```Shell
 # Create a json file and then use the COCO API to evaluate the result.
-python eval.py --config=yolact_base_config --output_coco_json
+python eval.py --config=yolact_base_config --cocoapi
 # Then,
 python coco_eval.py
 
@@ -53,10 +53,10 @@ python eval.py --trained_model=weights/yolact_base_54_800000.pth --benchmark --m
 ## Detect
 ![Example 2](data/2.jpg)
 ```Shell
-# Detect images, pass the path of your image directory to --image_path.
-python detect.py --trained_model=weights/yolact_base_54_800000.pth --image_path images
+# Detect images, pass the path of your image directory to --image.
+python detect.py --trained_model=weights/yolact_base_54_800000.pth --image images
 # Detect a video, pass the path of your video to --video.
 python detect.py --trained_model=weights/yolact_base_54_800000.pth --video video/1.mp4
 # Use --hide_mask, --hide_score, --show_lincomb and so on to get different results.
-python detect.py --trained_model=weights/yolact_base_54_800000.pth --image_path images --hide_mask
+python detect.py --trained_model=weights/yolact_base_54_800000.pth --image images --hide_mask
 ```
