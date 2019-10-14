@@ -145,7 +145,7 @@ yolact_base_config = Config({
     # FPN Settings
     'fpn': fpn_base,
     # Freeze the backbone bn layer during training, other additional bn layers after the backbone will not be frozen.
-    'freeze_bn': True,
+    'freeze_bn': False,
 
     # Learning rate
     'lr_steps': (280000, 600000, 700000, 750000),
