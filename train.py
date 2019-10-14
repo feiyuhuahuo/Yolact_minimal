@@ -14,13 +14,13 @@ import torch.backends.cudnn as cudnn
 import torch.utils.data as data
 import argparse
 import datetime
-import eval
+from eval import evaluate
 import os
 from data.coco import detection_collate
 
 parser = argparse.ArgumentParser(description='Yolact Training Script')
 parser.add_argument('--config', default=None, help='The config object to use.')
-parser.add_argument('--batch_size', default=8, type=int)
+parser.add_argument('--batch_size', default=24, type=int)
 parser.add_argument('--resume', default=None, type=str, help='The path of checkpoint file to resume training from.')
 parser.add_argument('--lr', default=None, type=float, help='Initial learning rate. Leave as None to read this from the config.')
 parser.add_argument('--momentum', default=None, type=float, help='Momentum for SGD. Leave as None to read this from the config.')
@@ -76,7 +76,7 @@ def compute_val_map(yolact_net):
                                     augmentation=BaseTransform())
         yolact_net.eval()
         print("\nComputing validation mAP...", flush=True)
-        table = eval.evaluate(yolact_net, val_dataset, during_training=True)
+        table = evaluate(yolact_net, val_dataset, during_training=True)
         yolact_net.train()
         return table
 

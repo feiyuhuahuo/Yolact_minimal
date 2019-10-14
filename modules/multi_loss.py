@@ -6,6 +6,7 @@ from torch.autograd import Variable
 from utils.box_utils import match, center_size, crop
 from data.config import cfg
 
+
 class Multi_Loss(nn.Module):
     def __init__(self, num_classes, pos_thre, neg_thre, negpos_ratio):
         super().__init__()
@@ -52,19 +53,20 @@ class Multi_Loss(nn.Module):
 
     @staticmethod
     def lincomb_mask_loss(positive_bool, prior_max_index, coef_p, proto_p, mask_gt, prior_max_box):
-        proto_h = proto_p.size(1)    # 138
-        proto_w = proto_p.size(2)    # 138
+        proto_h = proto_p.size(1)  # 138
+        proto_w = proto_p.size(2)  # 138
 
         loss_m = 0
-        for i in range(coef_p.size(0)):    # coef_p.shape: (2, 19248, 32)
+        for i in range(coef_p.size(0)):  # coef_p.shape: (2, 19248, 32)
             with torch.no_grad():
                 # downsample the gt mask to the size of 'proto_p'
-                downsampled_masks = F.interpolate(mask_gt[i].unsqueeze(0), (proto_h, proto_w), mode='bilinear', align_corners=False).squeeze(0)
-                downsampled_masks = downsampled_masks.permute(1, 2, 0).contiguous()    # (138, 138, num_objects)
+                downsampled_masks = F.interpolate(mask_gt[i].unsqueeze(0), (proto_h, proto_w), mode='bilinear',
+                                                  align_corners=False).squeeze(0)
+                downsampled_masks = downsampled_masks.permute(1, 2, 0).contiguous()  # (138, 138, num_objects)
                 # binarize the gt mask because of the downsample operation
                 downsampled_masks = downsampled_masks.gt(0.5).float()
 
-            pos_prior_index = prior_max_index[i, positive_bool[i]]    # pos_prior_index.shape: [num_positives]
+            pos_prior_index = prior_max_index[i, positive_bool[i]]  # pos_prior_index.shape: [num_positives]
             pos_prior_box = prior_max_box[i, positive_bool[i]]
             pos_coef = coef_p[i, positive_bool[i]]
 
@@ -80,7 +82,7 @@ class Multi_Loss(nn.Module):
                 select = perm[:cfg.masks_to_train]
 
                 pos_coef = pos_coef[select]
-                pos_prior_index  = pos_prior_index[select]
+                pos_prior_index = pos_prior_index[select]
                 pos_prior_box = pos_prior_box[select]
 
             num_pos = pos_coef.size(0)
@@ -88,8 +90,8 @@ class Multi_Loss(nn.Module):
 
             # mask assembly by linear combination
             # @ means dot product
-            mask_p = torch.sigmoid(proto_p[i] @ pos_coef.t())    # mask_p.shape: (138, 138, num_pos)
-            mask_p = crop(mask_p, pos_prior_box)    # pos_prior_box.shape: (num_pos, 4)
+            mask_p = torch.sigmoid(proto_p[i] @ pos_coef.t())  # mask_p.shape: (138, 138, num_pos)
+            mask_p = crop(mask_p, pos_prior_box)  # pos_prior_box.shape: (num_pos, 4)
 
             mask_loss = F.binary_cross_entropy(torch.clamp(mask_p, 0, 1), pos_mask_gt, reduction='none')
             # Normalize the mask loss to emulate roi pooling's effect on loss.
@@ -128,22 +130,21 @@ class Multi_Loss(nn.Module):
 
             loss_s += F.binary_cross_entropy_with_logits(cur_segment, segment_gt, reduction='sum')
 
-        return loss_s / mask_h / mask_w * cfg.semantic_segmentation_alpha
+        return loss_s / mask_h / mask_w * cfg.semantic_alpha
 
     def forward(self, predictions, box_class, mask_gt, num_crowds):
         # if use DataParallel, predictions here are the merged results from multiple GPUs
-        box_p = predictions['box']    # (2, 19248, 4)
-        class_p = predictions['class']    # (2, 19248, 81)
-        coef_p = predictions['coef']    # (2, 19248, 32)
-        priors = predictions['priors']    # (19248, 4)
-        proto_p = predictions['proto']    # (2, 138, 138, 32)
+        box_p = predictions['box']  # (2, 19248, 4)
+        class_p = predictions['class']  # (2, 19248, 81)
+        coef_p = predictions['coef']  # (2, 19248, 32)
+        priors = predictions['priors']  # (19248, 4)
+        proto_p = predictions['proto']  # (2, 138, 138, 32)
 
         class_gt = [None] * len(box_class)  # Used in sem segm loss
         batch_size = box_p.size(0)
         # TODO: don't understand about DataParallel
-        # This is necessary for training on multiple GPUs because DataParallel will cat the priors from each GPU together.
-        priors = priors[:box_p.size(1), :]
-        num_priors = (priors.size(0))    # 19248
+        priors = priors[:box_p.size(1), :]  # Do this because DataParallel cats all GPU's priors together.
+        num_priors = (priors.size(0))  # 19248
 
         all_offsets = box_p.new(batch_size, num_priors, 4)
         conf_gt = box_p.new(batch_size, num_priors).long()
@@ -164,7 +165,8 @@ class Multi_Loss(nn.Module):
             else:
                 crowd_boxes = None
 
-            all_offsets[i], conf_gt[i], prior_max_box[i], prior_max_index[i] = match(self.pos_thre, self.neg_thre, box_gt,
+            all_offsets[i], conf_gt[i], prior_max_box[i], prior_max_index[i] = match(self.pos_thre, self.neg_thre,
+                                                                                     box_gt,
                                                                                      priors, class_gt[i], crowd_boxes)
 
         # all_offsets: the transformed box coordinate offsets of each pair of prior and gt box
@@ -172,14 +174,14 @@ class Multi_Loss(nn.Module):
         #          '0' means background, '>0' means foreground.
         # prior_max_box: the corresponding max IoU gt box for each prior
         # prior_max_index: the index of the corresponding max IoU gt box for each prior
-        all_offsets = Variable(all_offsets, requires_grad=False)    # [2, 19248, 4]
-        conf_gt = Variable(conf_gt, requires_grad=False)    # [2, 19248]
-        prior_max_index = Variable(prior_max_index, requires_grad=False)    # [2, 19248]
+        all_offsets = Variable(all_offsets, requires_grad=False)  # [2, 19248, 4]
+        conf_gt = Variable(conf_gt, requires_grad=False)  # [2, 19248]
+        prior_max_index = Variable(prior_max_index, requires_grad=False)  # [2, 19248]
 
         losses = {}
         # Localization loss (Smooth L1)
         # only compute losses from positive samples
-        positive_bool = conf_gt > 0    # [2, 19248]
+        positive_bool = conf_gt > 0  # [2, 19248]
 
         num_pos = positive_bool.sum(dim=1, keepdim=True)
 

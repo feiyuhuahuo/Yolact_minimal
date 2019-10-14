@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-
+import pdb
 
 class Bottleneck(nn.Module):
     expansion = 4
@@ -85,14 +85,14 @@ class ResNetBackbone(nn.Module):
 
     def forward(self, x):
         """ Returns a list of convouts for each layer. """
-
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
+
         x = self.maxpool(x)
 
         outs = []
-        for layer in self.layers:
+        for i, layer in enumerate(self.layers):
             x = layer(x)
             outs.append(x)
 

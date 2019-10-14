@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 import torch
+from itertools import product
+from math import sqrt
 from data.config import cfg
+
 
 def center_size(boxes):
     """ Convert prior_boxes to format: (cx, cy, w, h)."""
@@ -30,7 +33,7 @@ def intersect(box_a, box_b):
     return inter[:, :, :, 0] * inter[:, :, :, 1]
 
 
-def jaccard(box_a, box_b, iscrowd : bool = False):
+def jaccard(box_a, box_b, iscrowd: bool = False):
     """
     Compute the IoU of two sets of boxes.
     Args:
@@ -47,8 +50,10 @@ def jaccard(box_a, box_b, iscrowd : bool = False):
         box_b = box_b[None, ...]
 
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, :, 2]-box_a[:, :, 0]) * (box_a[:, :, 3]-box_a[:, :, 1])).unsqueeze(2).expand_as(inter)  # [A,B]
-    area_b = ((box_b[:, :, 2]-box_b[:, :, 0]) * (box_b[:, :, 3]-box_b[:, :, 1])).unsqueeze(1).expand_as(inter)  # [A,B]
+    area_a = ((box_a[:, :, 2] - box_a[:, :, 0]) * (box_a[:, :, 3] - box_a[:, :, 1])).unsqueeze(2).expand_as(
+        inter)  # [A,B]
+    area_b = ((box_b[:, :, 2] - box_b[:, :, 0]) * (box_b[:, :, 3] - box_b[:, :, 1])).unsqueeze(1).expand_as(
+        inter)  # [A,B]
     union = area_a + area_b - inter
 
     out = inter / area_a if iscrowd else inter / union
@@ -72,12 +77,12 @@ def match(pos_thresh, neg_thresh, box_gt, priors, class_gt, crowd_boxes):
     """
     priors = priors.data
     # Convert prior boxes to the form of [xmin, ymin, xmax, ymax].
-    decoded_priors = torch.cat((priors[:, :2] - priors[:, 2:]/2, priors[:, :2] + priors[:, 2:]/2), 1)
+    decoded_priors = torch.cat((priors[:, :2] - priors[:, 2:] / 2, priors[:, :2] + priors[:, 2:] / 2), 1)
 
-    overlaps = jaccard(box_gt, decoded_priors)    # size: [num_objects, num_priors]
+    overlaps = jaccard(box_gt, decoded_priors)  # size: [num_objects, num_priors]
 
-    each_box_max, each_box_index = overlaps.max(1)    # size [num_objects], the max IoU for each gt box
-    each_prior_max, each_prior_index = overlaps.max(0)    # size [num_priors], the max IoU for each prior
+    each_box_max, each_box_index = overlaps.max(1)  # size [num_objects], the max IoU for each gt box
+    each_prior_max, each_prior_index = overlaps.max(0)  # size [num_priors], the max IoU for each prior
 
     # For the max IoU prior for each gt box, set its IoU to 2. This ensures that it won't be filtered
     # in the threshold step even if the IoU is under the negative threshold. This is because that we want
@@ -88,11 +93,11 @@ def match(pos_thresh, neg_thresh, box_gt, priors, class_gt, crowd_boxes):
     for j in range(each_box_index.size(0)):
         each_prior_index[each_box_index[j]] = j
 
-    each_prior_box = box_gt[each_prior_index]    # size: [num_priors, 4]
-    conf = class_gt[each_prior_index] + 1    # the class of the max IoU gt box for each prior, size: [num_priors]
+    each_prior_box = box_gt[each_prior_index]  # size: [num_priors, 4]
+    conf = class_gt[each_prior_index] + 1  # the class of the max IoU gt box for each prior, size: [num_priors]
 
-    conf[each_prior_max < pos_thresh] = -1    # label as neutral
-    conf[each_prior_max < neg_thresh] = 0    # label as background
+    conf[each_prior_max < pos_thresh] = -1  # label as neutral
+    conf[each_prior_max < neg_thresh] = 0  # label as background
 
     # Deal with crowd annotations for COCO
     if crowd_boxes is not None and cfg.crowd_iou_threshold < 1:
@@ -108,20 +113,42 @@ def match(pos_thresh, neg_thresh, box_gt, priors, class_gt, crowd_boxes):
     return offsets, conf, each_prior_box, each_prior_index
 
 
+def make_anchors(conv_h, conv_w, scale):
+    prior_data = []
+    # Iteration order is important (it has to sync up with the convout)
+    for j, i in product(range(conv_h), range(conv_w)):
+        # + 0.5 because priors are in center
+        x = (i + 0.5) / conv_w
+        y = (j + 0.5) / conv_h
+
+        for ar in cfg.backbone.aspect_ratios:
+            ar = sqrt(ar)
+            w = scale * ar / cfg.max_size
+            h = scale / ar / cfg.max_size
+
+            # This is for backward compatability with a bug where I made everything square by accident
+            if cfg.backbone.use_square_anchors:  # True
+                h = w
+
+            prior_data += [x, y, w, h]
+
+    return prior_data
+
+
 def encode(matched, priors):
     variances = [0.1, 0.2]
 
-    g_cxcy = (matched[:, :2] + matched[:, 2:])/2 - priors[:, :2]    # 10 * (Xg - Xa) / Wa
-    g_cxcy /= (variances[0] * priors[:, 2:])                        # 10 * (Yg - Ya) / Ha
-    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]        # 5 * log(Wg / Wa)
-    g_wh = torch.log(g_wh) / variances[1]                           # 5 * log(Hg / Ha)
+    g_cxcy = (matched[:, :2] + matched[:, 2:]) / 2 - priors[:, :2]  # 10 * (Xg - Xa) / Wa
+    g_cxcy /= (variances[0] * priors[:, 2:])  # 10 * (Yg - Ya) / Ha
+    g_wh = (matched[:, 2:] - matched[:, :2]) / priors[:, 2:]  # 5 * log(Wg / Wa)
+    g_wh = torch.log(g_wh) / variances[1]  # 5 * log(Hg / Ha)
     # return target for smooth_l1_loss
-    loc = torch.cat([g_cxcy, g_wh], 1)    # [num_priors, 4]
-        
-    return loc
+    offsets = torch.cat([g_cxcy, g_wh], 1)  # [num_priors, 4]
+
+    return offsets
 
 
-def decode(loc, priors):
+def decode(box_p, priors):
     """
     Decode predicted bbox coordinates using the same scheme
     employed by Yolov2: https://arxiv.org/pdf/1612.08242.pdf
@@ -142,39 +169,34 @@ def decode(loc, priors):
     """
     variances = [0.1, 0.2]
 
-    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:],
-                       priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
+    boxes = torch.cat((priors[:, :2] + box_p[:, :2] * variances[0] * priors[:, 2:],
+                       priors[:, 2:] * torch.exp(box_p[:, 2:] * variances[1])), 1)
 
     boxes[:, :2] -= boxes[:, 2:] / 2
     boxes[:, 2:] += boxes[:, :2]
-    
+
     return boxes
 
 
-def sanitize_coordinates(_x1, _x2, img_size: int, padding: int = 0, cast: bool = True):
+def sanitize_coordinates(_x1, _x2, img_size: int, padding: int = 0):
     """
     Sanitizes the input coordinates so that x1 < x2, x1 != x2, x1 >= 0, and x2 <= image_size.
     Also converts from relative to absolute coordinates and casts the results to long tensors.
 
-    If cast is false, the result won't be cast to longs.
     Warning: this does things in-place behind the scenes so copy if necessary.
     """
     _x1 = _x1 * img_size
     _x2 = _x2 * img_size
-    if cast:
-        _x1 = _x1.long()
-        _x2 = _x2.long()
 
     x1 = torch.min(_x1, _x2)
     x2 = torch.max(_x1, _x2)
-    x1 = torch.clamp(x1-padding, min=0)
-    x2 = torch.clamp(x2+padding, max=img_size)
+    x1 = torch.clamp(x1 - padding, min=0)
+    x2 = torch.clamp(x2 + padding, max=img_size)
 
     return x1, x2
 
 
 def crop(masks, boxes, padding: int = 1):
-
     """
     "Crop" predicted masks by zeroing out everything not in the predicted bbox.
     Args:
@@ -182,8 +204,8 @@ def crop(masks, boxes, padding: int = 1):
         - boxes should be a size [n, 4] tensor of bbox coords in relative point form
     """
     h, w, n = masks.size()
-    x1, x2 = sanitize_coordinates(boxes[:, 0], boxes[:, 2], w, padding, cast=False)
-    y1, y2 = sanitize_coordinates(boxes[:, 1], boxes[:, 3], h, padding, cast=False)
+    x1, x2 = sanitize_coordinates(boxes[:, 0], boxes[:, 2], w, padding)
+    y1, y2 = sanitize_coordinates(boxes[:, 1], boxes[:, 3], h, padding)
 
     rows = torch.arange(w, device=masks.device, dtype=x1.dtype).view(1, -1, 1).expand(h, w, n)
     cols = torch.arange(h, device=masks.device, dtype=x1.dtype).view(-1, 1, 1).expand(h, w, n)
@@ -194,5 +216,29 @@ def crop(masks, boxes, padding: int = 1):
     masks_down = cols < y2.view(1, 1, -1)
 
     crop_mask = masks_left * masks_right * masks_up * masks_down
-    
+
     return masks * crop_mask.float()
+
+
+def mask_iou(mask1, mask2, iscrowd=False):
+    """
+    Inputs inputs are matricies of size _ x N. Output is size _1 x _2.
+    Note: if iscrowd is True, then mask2 should be the crowd.
+    """
+    intersection = torch.matmul(mask1, mask2.t())
+    area1 = torch.sum(mask1, dim=1).view(1, -1)
+    area2 = torch.sum(mask2, dim=1).view(1, -1)
+    union = (area1.t() + area2) - intersection
+
+    if iscrowd:
+        # Make sure to brodcast to the right dimension
+        ret = intersection / area1.t()
+    else:
+        ret = intersection / union
+
+    return ret.cpu()
+
+
+def bbox_iou(bbox1, bbox2, iscrowd=False):
+    ret = jaccard(bbox1, bbox2, iscrowd)
+    return ret.cpu()

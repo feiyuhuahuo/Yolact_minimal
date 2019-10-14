@@ -4,3 +4,5 @@
 videos/
 images/
 *.bin
+results/
+test~~.py

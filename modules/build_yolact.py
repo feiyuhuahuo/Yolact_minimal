@@ -1,11 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from itertools import product
-from math import sqrt
 from typing import List
 from data.config import cfg
 from modules.backbone import construct_backbone
+from utils.box_utils import make_anchors
 from utils import timer
 
 torch.cuda.current_device()
@@ -100,11 +99,25 @@ class PredictionModule(nn.Module):
     def forward(self, x):
         if cfg.extra_head_net is not None:
             x = self.upfeature(x)
+        # aa = x.detach().cpu().numpy()
+        # print(aa.shape)
+        # aa.tofile('109.bin')
+
+        conf = self.conf_layer(x).permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, self.num_classes)
+        # aa = self.conf_layer(x).detach().cpu().numpy()
+        # print(aa.shape)
+        # aa.tofile('110.bin')
 
         bbox = self.bbox_layer(x).permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, 4)
-        conf = self.conf_layer(x).permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, self.num_classes)
+        # aa = self.bbox_layer(x).detach().cpu().numpy()
+        # print(aa.shape)
+        # aa.tofile('111.bin')
+
         coef = self.mask_layer(x).permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, self.coef_dim)
         coef = torch.tanh(coef)
+        # aa = (torch.tanh(self.mask_layer(x))).detach().cpu().numpy()
+        # print(aa.shape)
+        # aa.tofile('112.bin')
 
         return {'box': bbox, 'class': conf, 'coef': coef}
 
@@ -159,10 +172,10 @@ class FPN(nn.Module):
 
             if j < len(convouts) - 1:
                 _, _, h, w = convouts[j].size()
-
                 x = F.interpolate(x, size=(h, w), mode=self.interpolation_mode, align_corners=False)
 
             x = x + lat_layer(convouts[j])
+
             out[j] = x
 
         j = len(convouts)
@@ -182,48 +195,11 @@ class FPN(nn.Module):
         return out
 
 
-class Anchors:
-    def __init__(self):
-        self.conv_h = None
-        self.conv_w = None
-        self.aspect_ratios = cfg.backbone.aspect_ratios
-        self.last_conv_size = None
-
-    def make_anchors(self, conv_h, conv_w, scale):
-        if self.last_conv_size != (conv_h, conv_w):
-            prior_data = []
-
-            # Iteration order is important (it has to sync up with the convout)
-            for j, i in product(range(conv_h), range(conv_w)):
-
-                # + 0.5 because priors are in center
-                x = (i + 0.5) / conv_w
-                y = (j + 0.5) / conv_h
-
-                for ar in self.aspect_ratios:
-                    ar = sqrt(ar)
-                    w = scale * ar / cfg.max_size
-                    h = scale / ar / cfg.max_size
-
-                    # This is for backward compatability with a bug where I made everything square by accident
-                    if cfg.backbone.use_square_anchors:  # True
-                        h = w
-
-                    prior_data += [x, y, w, h]
-
-            self.priors = torch.Tensor(prior_data).view(-1, 4).cuda()
-            self.last_conv_size = (conv_h, conv_w)
-
-        return self.priors
-
-
 class Yolact(nn.Module):
 
     def __init__(self):
         super().__init__()
         self.backbone = construct_backbone(cfg.backbone)
-        self.scales = cfg.backbone.scales
-        self.aspect_scales = cfg.backbone.aspect_ratios
 
         if cfg.freeze_bn:
             self.freeze_bn()
@@ -252,7 +228,6 @@ class Yolact(nn.Module):
         # create a ModuleList to match with the original pre-trained weights (original model state_dict)
         self.prediction_layers = nn.ModuleList()
         self.prediction_layers.append(PredictionModule(in_channels))
-
         '''  
         self.prediction_layers:
         ModuleList(
@@ -262,11 +237,14 @@ class Yolact(nn.Module):
                                 (conf_layer): Conv2d(256, 243, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
                                 (mask_layer): Conv2d(256, 96, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))))
         '''
-        self.anchor_list = [Anchors() for _ in self.selected_layers]
 
-        if cfg.use_semantic_segmentation_loss:  # True
-            self.semantic_seg_conv = nn.Conv2d(256, cfg.num_classes - 1,
-                                               kernel_size=1)  # Conv2d(256, 80, kernel_size=1)
+        if cfg.train_semantic:  # True
+            self.semantic_seg_conv = nn.Conv2d(256, cfg.num_classes - 1, kernel_size=1)
+
+        self.anchors = []
+        for i, hw in enumerate(cfg.hws):
+            self.anchors += make_anchors(hw[1], hw[0], cfg.backbone.scales[i])
+        self.anchors = torch.Tensor(self.anchors).view(-1, 4).cuda()
 
     def save_weights(self, path):
         torch.save(self.state_dict(), path)
@@ -310,7 +288,6 @@ class Yolact(nn.Module):
                 module.bias.requires_grad = False
 
     def forward(self, x):
-        """ x: [batch_size, 3, img_h, img_w] """
         with timer.env('backbone'):
             outs = self.backbone(x)
 
@@ -333,7 +310,7 @@ class Yolact(nn.Module):
             proto_out = proto_out.permute(0, 2, 3, 1).contiguous()
 
         with timer.env('pred_heads'):
-            predictions = {'box': [], 'class': [], 'coef': [], 'priors': []}
+            predictions = {'box': [], 'class': [], 'coef': []}
 
             for i in self.selected_layers:  # self.selected_layers [0, 1, 2, 3, 4]
                 p = self.prediction_layers[0](outs[i])
@@ -341,19 +318,15 @@ class Yolact(nn.Module):
                 for k, v in p.items():
                     predictions[k].append(v)
 
-                conv_h, conv_w = outs[i].size(2), outs[i].size(3)
-                anchors = self.anchor_list[i].make_anchors(conv_h, conv_w, self.scales[i])
-                predictions['priors'].append(anchors)
-
         for k, v in predictions.items():
             predictions[k] = torch.cat(v, -2)
 
         predictions['proto'] = proto_out
+        predictions['anchors'] = self.anchors
 
         if self.training:
-            if cfg.use_semantic_segmentation_loss:  # True
+            if cfg.train_semantic:  # True
                 predictions['segm'] = self.semantic_seg_conv(outs[0])
-
             return predictions
 
         else:
