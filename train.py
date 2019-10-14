@@ -22,7 +22,7 @@ parser = argparse.ArgumentParser(description='Yolact Training Script')
 parser.add_argument('--config', default='yolact_base_config', help='The config object to use.')
 parser.add_argument('--batch_size', default=8, type=int)
 parser.add_argument('--resume', default=None, type=str, help='The path of checkpoint file to resume training from.')
-parser.add_argument('--val_interval', default=10000, type=int,
+parser.add_argument('--val_interval', default=20000, type=int,
                     help='Val and save the model every [val_interval] iterations, pass -1 to disable.')
 parser.add_argument('--max_keep', default=10, type=int, help='The maximum number of .pth files to keep.')
 
@@ -126,10 +126,10 @@ if cuda:
 epoch_size = len(dataset) // args.batch_size
 step_index = 0
 
-iteration = resume_iter if args.resume else 0
-start_epoch = iteration // epoch_size
+iter = resume_iter if args.resume else 0
+start_epoch = iter // epoch_size
 end_epoch = cfg.max_iter // epoch_size + 1
-remain = epoch_size - (iteration % epoch_size)
+remain = epoch_size - (iter % epoch_size)
 
 data_loader = data.DataLoader(dataset, args.batch_size, num_workers=8, shuffle=True,
                               collate_fn=detection_collate, pin_memory=True)
@@ -147,15 +147,14 @@ try:
             if args.resume and epoch == start_epoch and i >= remain:
                 break
 
-            iteration += 1
+            iter += 1
 
             # Warm up learning rate
-            if cfg.lr_warmup_until > 0 and iteration <= cfg.lr_warmup_until:
-                set_lr(optimizer,
-                       (cfg.lr - cfg.lr_warmup_init) * (iteration / cfg.lr_warmup_until) + cfg.lr_warmup_init)
+            if cfg.warmup_until > 0 and iter <= cfg.warmup_until:
+                set_lr(optimizer, (cfg.lr - cfg.warmup_init) * (iter / cfg.warmup_until) + cfg.warmup_init)
 
             # Adjust the learning rate at the given iterations, but also if we resume from past that iteration
-            while step_index < len(cfg.lr_steps) and iteration >= cfg.lr_steps[step_index]:
+            while step_index < len(cfg.lr_steps) and iter >= cfg.lr_steps[step_index]:
                 step_index += 1
                 set_lr(optimizer, cfg.lr * (0.1 ** step_index))
 
@@ -188,38 +187,36 @@ try:
                 batch_time.add(iter_time)
             temp = grad_end
 
-            if iteration % 10 == 0:
+            if iter % 10 == 0:
                 cur_lr = optimizer.param_groups[0]['lr']
-                eta_str = str(datetime.timedelta(seconds=(cfg.max_iter - iteration) * batch_time.get_avg())).split('.')[
-                    0]
+                seconds = (cfg.max_iter - iter) * batch_time.get_avg()
+                eta_str = str(datetime.timedelta(seconds=seconds)).split('.')[0]
                 total = sum([loss_avgs[k].get_avg() for k in losses])
                 loss_labels = sum([[k, loss_avgs[k].get_avg()] for k in loss_types if k in losses], [])
 
-                forward_time = forward_end - forward_start
-                data_time = iter_time - (grad_end - forward_start)
-                print(('[%3d] %7d |' + (' %s: %.3f |' * len(
-                    losses)) + ' T: %.3f | lr: %.5f | t_data: %.3f | t_forward: %.3f | t_total: %.3f | ETA: %s')
-                      % tuple(
-                    [epoch, iteration] + loss_labels + [total, cur_lr, data_time, forward_time, iter_time, eta_str]),
-                      flush=True)
+                t_forward = forward_end - forward_start
+                t_data = iter_time - (grad_end - forward_start)
+                time_str = ' T: %.3f | lr: %.5f | t_data: %.3f | t_forward: %.3f | t_total: %.3f | ETA: %s'
+                print(('[%3d] %7d |' + (' %s: %.3f |' * len(losses)) + time_str) % tuple(
+                    [epoch, iter] + loss_labels + [total, cur_lr, t_data, t_forward, iter_time, eta_str]), flush=True)
 
-            if args.val_interval > 0 and iteration % args.val_interval == 0:
-                print(f'Saving network at epoch: {epoch}, iteration: {iteration}.\n')
-                save_weights(net, epoch, iteration)
+            if args.val_interval > 0 and iter % args.val_interval == 0:
+                print(f'Saving network at epoch: {epoch}, iteration: {iter}.\n')
+                save_weights(net, epoch, iter)
 
                 info = (('iteration: %7d |' + (' %s: %.3f |' * len(losses)) + ' T: %.3f | lr: %.5f')
-                        % tuple([iteration] + loss_labels + [total, cur_lr]))
+                        % tuple([iter] + loss_labels + [total, cur_lr]))
                 table = compute_val_map(net.module)
                 map_tables.append((info, table))
 
 except KeyboardInterrupt:
-    print(f'\nStopped, saving network at epoch: {epoch}, iteration: {iteration}.\n')
-    save_weights(net, epoch, iteration)
+    print(f'\nStopped, saving network at epoch: {epoch}, iteration: {iter}.\n')
+    save_weights(net, epoch, iter)
 
     print_result(map_tables)
     exit()
 
-print(f'Training completed, saving network at epoch: {epoch}, iteration: {iteration}.\n')
-save_weights(net, epoch, iteration)
+print(f'Training completed, saving network at epoch: {epoch}, iteration: {iter}.\n')
+save_weights(net, epoch, iter)
 
 print_result(map_tables)

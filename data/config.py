@@ -145,7 +145,7 @@ yolact_base_config = Config({
     # FPN Settings
     'fpn': fpn_base,
     # Freeze the backbone bn layer during training, other additional bn layers after the backbone will not be frozen.
-    'freeze_bn': True,
+    'freeze_bn': False,
 
     # Learning rate
     'lr_steps': (280000, 600000, 700000, 750000),
@@ -153,8 +153,8 @@ yolact_base_config = Config({
     'momentum': 0.9,
     'decay': 5e-4,
     # warm up setting
-    'lr_warmup_init': 1e-4,
-    'lr_warmup_until': 500,
+    'warmup_init': 1e-4,
+    'warmup_until': 500,
 
     # The maximum number of detections for evaluation
     'mask_alpha': 6.125,

@@ -294,14 +294,14 @@ def calc_map(ap_data):
     return table.table
 
 
-def evaluate(net, dataset, during_training=False, cocoapi=False):
+def evaluate(net, dataset, max_num=-1, during_training=False, benchmark=False, cocoapi=False, traditional_nms=False):
     frame_times = MovingAverage()
-    dataset_size = len(dataset) if args.max_num < 0 else min(args.max_num, len(dataset))
+    dataset_size = len(dataset) if max_num < 0 else min(max_num, len(dataset))
     dataset_indices = list(range(len(dataset)))
     dataset_indices = dataset_indices[:dataset_size]
     progress_bar = ProgressBar(40, dataset_size)
 
-    if args.benchmark:
+    if benchmark:
         timer.disable('Data loading')
     else:
         # For each class and iou, stores tuples (score, isPositive)
@@ -322,9 +322,9 @@ def evaluate(net, dataset, during_training=False, cocoapi=False):
 
         with timer.env('Network forward'):
             net_outs = net(batch)
-            nms_outs = NMS(net_outs, args.traditional_nms)
+            nms_outs = NMS(net_outs, traditional_nms)
 
-        if args.benchmark:
+        if benchmark:
             prep_benchmark(nms_outs, h, w)
         else:
             prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, dataset.ids[image_idx], make_json, cocoapi)
@@ -341,7 +341,7 @@ def evaluate(net, dataset, during_training=False, cocoapi=False):
         print('\rProcessing:  %s  %d / %d (%.2f%%)  %.2f fps  ' % (
             repr(progress_bar), i + 1, dataset_size, progress, fps), end='')
 
-    if args.benchmark:
+    if benchmark:
         print('\n\nStats for the last frame:')
         timer.print_stats()
         avg_seconds = frame_times.get_avg()
@@ -358,10 +358,11 @@ def evaluate(net, dataset, during_training=False, cocoapi=False):
         return table
 
 
+iou_thresholds = [x / 100 for x in range(50, 100, 5)]
+cuda = torch.cuda.is_available()
+
 if __name__ == '__main__':
     args = parser.parse_args()
-    iou_thresholds = [x / 100 for x in range(50, 100, 5)]
-    cuda = torch.cuda.is_available()
     json_path = 'results'
     if not os.path.exists(json_path):
         os.mkdir(json_path)
@@ -390,4 +391,4 @@ if __name__ == '__main__':
         if cuda:
             net = net.cuda()
 
-        evaluate(net, dataset, cocoapi=args.cocoapi)
+        evaluate(net, dataset, args.max_num, False, args.benchmark, args.cocoapi, args.traditional_nms)
