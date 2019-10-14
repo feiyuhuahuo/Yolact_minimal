@@ -1,4 +1,3 @@
-import os
 from modules.backbone import ResNetBackbone, DarkNetBackbone
 
 COLORS = ((244, 67, 54), (233, 30, 99), (156, 39, 176), (103, 58, 183),

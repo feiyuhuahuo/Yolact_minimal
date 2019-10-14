@@ -19,34 +19,12 @@ import os
 from data.coco import detection_collate
 
 parser = argparse.ArgumentParser(description='Yolact Training Script')
-parser.add_argument('--config', default=None, help='The config object to use.')
-parser.add_argument('--batch_size', default=24, type=int)
+parser.add_argument('--config', default='yolact_base_config', help='The config object to use.')
+parser.add_argument('--batch_size', default=8, type=int)
 parser.add_argument('--resume', default=None, type=str, help='The path of checkpoint file to resume training from.')
-parser.add_argument('--lr', default=None, type=float, help='Initial learning rate. Leave as None to read this from the config.')
-parser.add_argument('--momentum', default=None, type=float, help='Momentum for SGD. Leave as None to read this from the config.')
-parser.add_argument('--decay', default=None, type=float, help='Weight decay for SGD. Leave as None to read this from the config.')
-parser.add_argument('--val_interval', default=10000, type=int, help='Val and save the model every [val_interval] iterations, pass -1 to disable.')
+parser.add_argument('--val_interval', default=10000, type=int,
+                    help='Val and save the model every [val_interval] iterations, pass -1 to disable.')
 parser.add_argument('--max_keep', default=10, type=int, help='The maximum number of .pth files to keep.')
-args = parser.parse_args()
-
-if args.config is not None:
-    set_cfg(args.config)
-
-# Update training parameters from the config if necessary
-def replace(name):
-    if getattr(args, name) is None:
-        setattr(args, name, getattr(cfg, name))
-
-replace('lr')
-replace('decay')
-replace('momentum')
-print(vars(args), '\n')
-
-cuda = torch.cuda.is_available()
-if cuda:
-    torch.set_default_tensor_type('torch.cuda.FloatTensor')
-else:
-    torch.set_default_tensor_type('torch.FloatTensor')
 
 
 def set_lr(optimizer, new_lr):
@@ -80,6 +58,7 @@ def compute_val_map(yolact_net):
         yolact_net.train()
         return table
 
+
 def print_result(map_tables):
     print('\nValidation results during training:\n')
     for info, table in map_tables:
@@ -101,132 +80,146 @@ def save_weights(net, epoch, iteration):
             if str(iter_num[0]) in aa:
                 os.remove('weights/' + aa)
 
-def train():
-    dataset = COCODetection(image_path=cfg.dataset.train_images,
-                            info_file=cfg.dataset.train_info,
-                            augmentation=SSDAugmentation())
 
-    net = Yolact()
-    net.train()
+args = parser.parse_args()
+if args.config is not None:
+    set_cfg(args.config)
 
-    # Don't use the timer during training, there's a race condition with multiple GPUs.
-    timer.disable_all()
+print(vars(args), '\n')
 
-    if args.resume is not None:
-        net.load_weights(args.resume)
-        resume_epoch = int(args.resume.split('.')[0].split('_')[2])
-        resume_iter = int(args.resume.split('.')[0].split('_')[3])
-        print(f'\nResume training at epoch: {resume_epoch}, iteration: {resume_iter}.')
-    else:
-        net.init_weights(backbone_path='weights/' + cfg.backbone.path)
-        print('\nTraining from begining, weights initialized.')
+cuda = torch.cuda.is_available()
+if cuda:
+    torch.set_default_tensor_type('torch.cuda.FloatTensor')
+else:
+    torch.set_default_tensor_type('torch.FloatTensor')
 
-    optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.decay)
-    criterion = Multi_Loss(num_classes=cfg.num_classes,
-                           pos_thre=cfg.positive_iou_threshold,  # 0.5
-                           neg_thre=cfg.negative_iou_threshold,  # 0.4
-                           negpos_ratio=3)
+dataset = COCODetection(image_path=cfg.dataset.train_images,
+                        info_file=cfg.dataset.train_info,
+                        augmentation=SSDAugmentation())
 
-    if cuda:
-        cudnn.benchmark = True
-        net = nn.DataParallel(net).cuda()
-        criterion = nn.DataParallel(criterion).cuda()
+net = Yolact()
+net.train()
 
-    epoch_size = len(dataset) // args.batch_size
-    step_index = 0
+# Don't use the timer during training, there's a race condition with multiple GPUs.
+timer.disable_all()
 
-    iteration = resume_iter if args.resume else 0
-    start_epoch = iteration // epoch_size
-    end_epoch = cfg.max_iter // epoch_size + 1
-    remain = epoch_size - (iteration % epoch_size)
+if args.resume is not None:
+    net.load_weights(args.resume)
+    resume_epoch = int(args.resume.split('.')[0].split('_')[2])
+    resume_iter = int(args.resume.split('.')[0].split('_')[3])
+    print(f'\nResume training at epoch: {resume_epoch}, iteration: {resume_iter}.')
+else:
+    net.init_weights(backbone_path='weights/' + cfg.backbone.path)
+    print('\nTraining from begining, weights initialized.')
 
-    data_loader = data.DataLoader(dataset,  args.batch_size, num_workers=8, shuffle=True,
-                                  collate_fn=detection_collate, pin_memory=True)
+optimizer = optim.SGD(net.parameters(), lr=cfg.lr, momentum=cfg.momentum, weight_decay=cfg.decay)
+criterion = Multi_Loss(num_classes=cfg.num_classes,
+                       pos_thre=cfg.positive_iou_threshold,  # 0.5
+                       neg_thre=cfg.negative_iou_threshold,  # 0.4
+                       negpos_ratio=3)
 
-    batch_time = MovingAverage()
-    loss_types = ['B', 'C', 'M', 'S']
-    loss_avgs = {k: MovingAverage(100) for k in loss_types}
-    map_tables = []
+if cuda:
+    cudnn.benchmark = True
+    net = nn.DataParallel(net).cuda()
+    criterion = nn.DataParallel(criterion).cuda()
 
-    print('Begin training!\n')
-    # Use try-except to use ctrl+c to stop and save early.
-    try:
-        for epoch in range(start_epoch, end_epoch):
-            for i, datum in enumerate(data_loader):
-                if args.resume and epoch == start_epoch and i >= remain:
-                    break
+epoch_size = len(dataset) // args.batch_size
+step_index = 0
 
-                iteration += 1
-                # Warm up learning rate
-                if cfg.lr_warmup_until > 0 and iteration <= cfg.lr_warmup_until:
-                    set_lr(optimizer, (args.lr - cfg.lr_warmup_init) * (iteration / cfg.lr_warmup_until) + cfg.lr_warmup_init)
+iteration = resume_iter if args.resume else 0
+start_epoch = iteration // epoch_size
+end_epoch = cfg.max_iter // epoch_size + 1
+remain = epoch_size - (iteration % epoch_size)
 
-                # Adjust the learning rate at the given iterations, but also if we resume from past that iteration
-                while step_index < len(cfg.lr_steps) and iteration >= cfg.lr_steps[step_index]:
-                    step_index += 1
-                    set_lr(optimizer, args.lr * (0.1 ** step_index))
+data_loader = data.DataLoader(dataset, args.batch_size, num_workers=8, shuffle=True,
+                              collate_fn=detection_collate, pin_memory=True)
 
-                images, box_classes, masks_gt, num_crowds = data_to_device(datum)
+batch_time = MovingAverage()
+loss_types = ['B', 'C', 'M', 'S']
+loss_avgs = {k: MovingAverage(100) for k in loss_types}
+map_tables = []
 
-                torch.cuda.synchronize()
-                forward_start = time.time()
+print('Begin training!\n')
+# Use try-except to use ctrl+c to stop and save early.
+try:
+    for epoch in range(start_epoch, end_epoch):
+        for i, datum in enumerate(data_loader):
+            if args.resume and epoch == start_epoch and i >= remain:
+                break
 
-                predictions = net(images)
+            iteration += 1
 
-                torch.cuda.synchronize()
-                forward_end = time.time()
+            # Warm up learning rate
+            if cfg.lr_warmup_until > 0 and iteration <= cfg.lr_warmup_until:
+                set_lr(optimizer,
+                       (cfg.lr - cfg.lr_warmup_init) * (iteration / cfg.lr_warmup_until) + cfg.lr_warmup_init)
 
-                losses = criterion(predictions, box_classes, masks_gt, num_crowds)
-                losses = {k: v.mean() for k, v in losses.items()}    # Mean here because Dataparallel
-                loss = sum([losses[k] for k in losses])
+            # Adjust the learning rate at the given iterations, but also if we resume from past that iteration
+            while step_index < len(cfg.lr_steps) and iteration >= cfg.lr_steps[step_index]:
+                step_index += 1
+                set_lr(optimizer, cfg.lr * (0.1 ** step_index))
 
-                optimizer.zero_grad()
-                loss.backward()    # Do this to free up vram even if loss is not finite
-                if torch.isfinite(loss).item():
-                    optimizer.step()
+            images, box_classes, masks_gt, num_crowds = data_to_device(datum)
 
-                # Add the loss to the moving average for bookkeeping
-                for k in losses:
-                    loss_avgs[k].add(losses[k].item())
+            torch.cuda.synchronize()
+            forward_start = time.time()
 
-                grad_end = time.time()
-                if not (i == 0 and epoch == start_epoch):
-                    iter_time = grad_end - temp
-                    batch_time.add(iter_time)
-                temp = grad_end
+            predictions = net(images)
 
-                if iteration % 10 == 0:
-                    cur_lr = optimizer.param_groups[0]['lr']
-                    eta_str = str(datetime.timedelta(seconds=(cfg.max_iter-iteration) * batch_time.get_avg())).split('.')[0]
-                    total = sum([loss_avgs[k].get_avg() for k in losses])
-                    loss_labels = sum([[k, loss_avgs[k].get_avg()] for k in loss_types if k in losses], [])
+            torch.cuda.synchronize()
+            forward_end = time.time()
 
-                    forward_time = forward_end - forward_start
-                    data_time = iter_time - (grad_end - forward_start)
-                    print(('[%3d] %7d |' + (' %s: %.3f |' * len(losses)) + ' T: %.3f | lr: %.5f | t_data: %.3f | t_forward: %.3f | t_total: %.3f | ETA: %s')
-                            % tuple([epoch, iteration] + loss_labels + [total, cur_lr, data_time, forward_time, iter_time, eta_str]), flush=True)
+            losses = criterion(predictions, box_classes, masks_gt, num_crowds)
+            losses = {k: v.mean() for k, v in losses.items()}  # Mean here because Dataparallel
+            loss = sum([losses[k] for k in losses])
 
-                if args.val_interval > 0 and iteration % args.val_interval == 0:
-                    print(f'Saving network at epoch: {epoch}, iteration: {iteration}.\n')
-                    save_weights(net, epoch, iteration)
+            optimizer.zero_grad()
+            loss.backward()  # Do this to free up vram even if loss is not finite
+            if torch.isfinite(loss).item():
+                optimizer.step()
 
-                    info = (('iteration: %7d |' + (' %s: %.3f |' * len(losses)) + ' T: %.3f | lr: %.5f')
-                            % tuple([iteration] + loss_labels + [total, cur_lr]))
-                    table = compute_val_map(net.module)
-                    map_tables.append((info, table))
+            # Add the loss to the moving average for bookkeeping
+            for k in losses:
+                loss_avgs[k].add(losses[k].item())
 
-    except KeyboardInterrupt:
-        print(f'\nStopped, saving network at epoch: {epoch}, iteration: {iteration}.\n')
-        save_weights(net, epoch, iteration)
+            grad_end = time.time()
+            if not (i == 0 and epoch == start_epoch):
+                iter_time = grad_end - temp
+                batch_time.add(iter_time)
+            temp = grad_end
 
-        print_result(map_tables)
-        exit()
+            if iteration % 10 == 0:
+                cur_lr = optimizer.param_groups[0]['lr']
+                eta_str = str(datetime.timedelta(seconds=(cfg.max_iter - iteration) * batch_time.get_avg())).split('.')[
+                    0]
+                total = sum([loss_avgs[k].get_avg() for k in losses])
+                loss_labels = sum([[k, loss_avgs[k].get_avg()] for k in loss_types if k in losses], [])
 
-    print(f'Training completed, saving network at epoch: {epoch}, iteration: {iteration}.\n')
+                forward_time = forward_end - forward_start
+                data_time = iter_time - (grad_end - forward_start)
+                print(('[%3d] %7d |' + (' %s: %.3f |' * len(
+                    losses)) + ' T: %.3f | lr: %.5f | t_data: %.3f | t_forward: %.3f | t_total: %.3f | ETA: %s')
+                      % tuple(
+                    [epoch, iteration] + loss_labels + [total, cur_lr, data_time, forward_time, iter_time, eta_str]),
+                      flush=True)
+
+            if args.val_interval > 0 and iteration % args.val_interval == 0:
+                print(f'Saving network at epoch: {epoch}, iteration: {iteration}.\n')
+                save_weights(net, epoch, iteration)
+
+                info = (('iteration: %7d |' + (' %s: %.3f |' * len(losses)) + ' T: %.3f | lr: %.5f')
+                        % tuple([iteration] + loss_labels + [total, cur_lr]))
+                table = compute_val_map(net.module)
+                map_tables.append((info, table))
+
+except KeyboardInterrupt:
+    print(f'\nStopped, saving network at epoch: {epoch}, iteration: {iteration}.\n')
     save_weights(net, epoch, iteration)
 
     print_result(map_tables)
+    exit()
 
+print(f'Training completed, saving network at epoch: {epoch}, iteration: {iteration}.\n')
+save_weights(net, epoch, iteration)
 
-if __name__ == '__main__':
-    train()
+print_result(map_tables)

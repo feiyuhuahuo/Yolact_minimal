@@ -137,7 +137,7 @@ class Multi_Loss(nn.Module):
         box_p = predictions['box']  # (2, 19248, 4)
         class_p = predictions['class']  # (2, 19248, 81)
         coef_p = predictions['coef']  # (2, 19248, 32)
-        priors = predictions['priors']  # (19248, 4)
+        priors = predictions['anchors']  # (19248, 4)
         proto_p = predictions['proto']  # (2, 138, 138, 32)
 
         class_gt = [None] * len(box_class)  # Used in sem segm loss
@@ -193,7 +193,7 @@ class Multi_Loss(nn.Module):
         losses['C'] = self.ohem_conf_loss(class_p, conf_gt, positive_bool)
 
         # This loss doesn't depend on anchors
-        if cfg.use_semantic_segmentation_loss:
+        if cfg.train_semantic:
             losses['S'] = self.semantic_segmentation_loss(predictions['segm'], mask_gt, class_gt)
 
         total_num_pos = num_pos.data.sum().float()

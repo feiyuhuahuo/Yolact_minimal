@@ -358,35 +358,36 @@ def evaluate(net, dataset, during_training=False, cocoapi=False):
         return table
 
 
-args = parser.parse_args()
-iou_thresholds = [x / 100 for x in range(50, 100, 5)]
-cuda = torch.cuda.is_available()
-json_path = 'results'
-if not os.path.exists(json_path):
-    os.mkdir(json_path)
+if __name__ == '__main__':
+    args = parser.parse_args()
+    iou_thresholds = [x / 100 for x in range(50, 100, 5)]
+    cuda = torch.cuda.is_available()
+    json_path = 'results'
+    if not os.path.exists(json_path):
+        os.mkdir(json_path)
 
-if args.config is None:
-    piece = args.trained_model.split('/')[1].split('_')
-    name = f'{piece[0]}_{piece[1]}_config'
-    print(f'\nConfig not specified. Parsed \'{name}\' from the checkpoint name.\n')
-    set_cfg(name)
+    if args.config is None:
+        piece = args.trained_model.split('/')[1].split('_')
+        name = f'{piece[0]}_{piece[1]}_config'
+        print(f'\nConfig not specified. Parsed \'{name}\' from the checkpoint name.\n')
+        set_cfg(name)
 
-with torch.no_grad():
-    if cuda:
-        cudnn.benchmark = True
-        cudnn.fastest = True
-        torch.set_default_tensor_type('torch.cuda.FloatTensor')
-    else:
-        torch.set_default_tensor_type('torch.FloatTensor')
+    with torch.no_grad():
+        if cuda:
+            cudnn.benchmark = True
+            cudnn.fastest = True
+            torch.set_default_tensor_type('torch.cuda.FloatTensor')
+        else:
+            torch.set_default_tensor_type('torch.FloatTensor')
 
-    dataset = COCODetection(cfg.dataset.valid_images, cfg.dataset.valid_info, augmentation=BaseTransform())
+        dataset = COCODetection(cfg.dataset.valid_images, cfg.dataset.valid_info, augmentation=BaseTransform())
 
-    print('Loading model...')
-    net = Yolact()
-    net.load_weights(args.trained_model)
-    net.eval()
+        print('Loading model...')
+        net = Yolact()
+        net.load_weights(args.trained_model)
+        net.eval()
 
-    if cuda:
-        net = net.cuda()
+        if cuda:
+            net = net.cuda()
 
-    evaluate(net, dataset, cocoapi=args.cocoapi)
+        evaluate(net, dataset, cocoapi=args.cocoapi)
