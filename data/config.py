@@ -130,7 +130,6 @@ yolact_base_config = Config({
     'max_size': 550,  # image Size
     'max_iter': 800000,
     'backbone': resnet101_backbone,
-    'hws': [(69, 69), (35, 35), (18, 18), (9, 9), (5, 5)],
     # During training, first compute the maximum gt IoU for each prior.
     # Then, for priors whose maximum IoU is over the positive threshold, marked as positive.
     # For priors whose maximum IoU is less than the negative threshold, marked as negative.
@@ -145,7 +144,7 @@ yolact_base_config = Config({
     # FPN Settings
     'fpn': fpn_base,
     # Freeze the backbone bn layer during training, other additional bn layers after the backbone will not be frozen.
-    'freeze_bn': False,
+    'freeze_bn': True,
 
     # Learning rate
     'lr_steps': (280000, 600000, 700000, 750000),
@@ -172,7 +171,8 @@ yolact_base_config = Config({
     'conf_thre': 0.05,
     'nms_thre': 0.5,
     'top_k': 200,
-    'max_detections': 100})
+    'max_detections': 100,
+    'dla_backbone': False})
 
 yolact_im400_config = yolact_base_config.copy({
     'name': 'yolact_im400',

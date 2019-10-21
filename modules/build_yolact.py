@@ -199,6 +199,7 @@ class Yolact(nn.Module):
 
     def __init__(self):
         super().__init__()
+        self.anchors = []
         self.backbone = construct_backbone(cfg.backbone)
 
         if cfg.freeze_bn:
@@ -241,11 +242,6 @@ class Yolact(nn.Module):
         if cfg.train_semantic:  # True
             self.semantic_seg_conv = nn.Conv2d(256, cfg.num_classes - 1, kernel_size=1)
 
-        self.anchors = []
-        for i, hw in enumerate(cfg.hws):
-            self.anchors += make_anchors(hw[1], hw[0], cfg.backbone.scales[i])
-        self.anchors = torch.Tensor(self.anchors).view(-1, 4).cuda()
-
     def save_weights(self, path):
         torch.save(self.state_dict(), path)
 
@@ -263,7 +259,6 @@ class Yolact(nn.Module):
     def init_weights(self, backbone_path):
         # Initialize the backbone with the pretrained weights.
         self.backbone.init_backbone(backbone_path)
-
         # Initialize the rest conv layers with xavier
         for name, module in self.named_modules():
             if isinstance(module, nn.Conv2d) and module not in self.backbone.backbone_modules:
@@ -295,14 +290,19 @@ class Yolact(nn.Module):
             outs = [outs[i] for i in cfg.backbone.selected_layers]
             outs = self.fpn(outs)
 
-        '''
-        outs:
-        (2, 3, 550, 550) -> backbone -> (2, 256, 138, 138) -> fpn -> [2, 256, 69, 69] P3
-                                        (2, 512, 69, 69)             [2, 256, 35, 35] P4
-                                        (2, 1024, 35, 35)            [2, 256, 18, 18] P5
-                                        (2, 2048, 18, 18)            [2, 256, 9, 9]   P6
-                                                                     [2, 256, 5, 5]   P7
-        '''
+            '''
+            outs:
+            (2, 3, 550, 550) -> backbone -> (2, 256, 138, 138) -> fpn -> [2, 256, 69, 69] P3
+                                            (2, 512, 69, 69)             [2, 256, 35, 35] P4
+                                            (2, 1024, 35, 35)            [2, 256, 18, 18] P5
+                                            (2, 2048, 18, 18)            [2, 256, 9, 9]   P6
+                                                                         [2, 256, 5, 5]   P7
+            '''
+        if isinstance(self.anchors, list):
+            for i, shape in enumerate([list(aa.shape) for aa in outs]):
+                self.anchors += make_anchors(shape[2], shape[3], cfg.backbone.scales[i])
+            self.anchors = torch.Tensor(self.anchors).view(-1, 4).cuda()
+
         with timer.env('proto'):
             # outs[0]: [2, 256, 69, 69], the feature map from P3
             proto_out = self.proto_net(outs[0])  # proto_out: [2, 32, 138, 138]
