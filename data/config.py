@@ -112,15 +112,6 @@ darknet53_backbone = Config({'name': 'DarkNet53',
                              'aspect_ratios': [1, 1 / 2, 2],
                              'use_square_anchors': True})
 
-# ----------------------- FPN DEFAULTS ----------------------- #
-fpn_base = Config({
-    'num_features': 256,  # the number of features in each FPN layer
-    'interpolation_mode': 'bilinear',  # upsampling mode
-    'num_downsample': 2,  # The number of extra layers to be produced by downsampling starting at P5
-    # Whether to down sample with a 3x3 stride 2 conv layer instead of just a stride 2 selection
-    'use_conv_downsample': True,
-    # Whether to pad the pred layers with 1 on each side, this is just for backwards compatibility
-    'pad': 1})
 
 # ----------------------- YOLACT v1.0 CONFIGS ----------------------- #
 yolact_base_config = Config({
@@ -141,8 +132,7 @@ yolact_base_config = Config({
     # If less than 1, anchors treated as a negative that have a crowd iou over this threshold with
     # the crowd boxes will be treated as a neutral.
     'crowd_iou_threshold': 0.7,
-    # FPN Settings
-    'fpn': fpn_base,
+
     # Freeze the backbone bn layer during training, other additional bn layers after the backbone will not be frozen.
     'freeze_bn': True,
 

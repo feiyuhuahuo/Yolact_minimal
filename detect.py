@@ -99,10 +99,9 @@ with torch.no_grad():
         num_frames = round(vid.get(cv2.CAP_PROP_FRAME_COUNT))
 
         name = args.video.split('/')[-1]
-        out = cv2.VideoWriter(f'{video_path}/{name}', cv2.VideoWriter_fourcc(*"mp4v"), target_fps,
-                              (frame_width, frame_height))
+        video_writer = cv2.VideoWriter(f'{video_path}/{name}', cv2.VideoWriter_fourcc(*"mp4v"), target_fps,
+                                       (frame_width, frame_height))
 
-        transform = FastBaseTransform()
         frame_times = MovingAverage()
         progress_bar = ProgressBar(40, num_frames)
 
@@ -111,15 +110,14 @@ with torch.no_grad():
             with timer.env('Detecting video'):
                 frame_origin = torch.from_numpy(vid.read()[1]).cuda().float()
                 img_h, img_w = frame_origin.shape[0], frame_origin.shape[1]
-                frame_trans = transform(frame_origin.unsqueeze(0))
+                frame_trans = FastBaseTransform(frame_origin.unsqueeze(0))
                 net_outs = net(frame_trans)
                 nms_outs = NMS(net_outs, args.traditional_nms)
-                results = after_nms(nms_outs, img_h, img_w, crop_masks=not args.no_crop,
-                                    visual_thre=args.visual_thre)
+                results = after_nms(nms_outs, img_h, img_w, crop_masks=not args.no_crop, visual_thre=args.visual_thre)
                 torch.cuda.synchronize()
 
                 frame_numpy = draw_img(results, frame_origin, args, class_color=True)
-                out.write(frame_numpy)
+                video_writer.write(frame_numpy)
 
             if i > 1:
                 frame_times.add(timer.total_time())
@@ -133,4 +131,4 @@ with torch.no_grad():
         print(f'\nDone, saved in: results/videos/{name}')
 
         vid.release()
-        out.release()
+        video_writer.release()
