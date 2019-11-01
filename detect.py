@@ -12,6 +12,7 @@ import argparse
 import glob
 import cv2
 import os
+import time
 
 parser = argparse.ArgumentParser(description='YOLACT COCO Evaluation')
 parser.add_argument('--config', default=None, help='The config object of the model.')
@@ -28,6 +29,7 @@ parser.add_argument('--no_crop', default=False, action='store_true',
 parser.add_argument('--image', default=None, type=str, help='The folder of images for detecting.')
 parser.add_argument('--video', default=None, type=str,
                     help='A path to a video to evaluate on. Passing a number means using the related webcam.')
+parser.add_argument('--real_time', default=False, action='store_true', help='Show the detection results real-timely.')
 parser.add_argument('--visual_thre', default=0.3, type=float,
                     help='Detections with a score under this threshold will be removed.')
 
@@ -85,7 +87,7 @@ with torch.no_grad():
             img_numpy = draw_img(results, img_origin, args)
 
             cv2.imwrite(f'{img_path}/{img_name}', img_numpy)
-            print(f'{i + 1}/{num}', end='\r')
+            print(f'\n{i + 1}/{num}', end='\r')
 
         print('\nDone.')
 
@@ -105,30 +107,37 @@ with torch.no_grad():
         frame_times = MovingAverage()
         progress_bar = ProgressBar(40, num_frames)
 
+        time_here = 0
+        fps = 0
         for i in range(num_frames):
-            timer.reset()
-            with timer.env('Detecting video'):
-                frame_origin = torch.from_numpy(vid.read()[1]).cuda().float()
-                img_h, img_w = frame_origin.shape[0], frame_origin.shape[1]
-                frame_trans = FastBaseTransform(frame_origin.unsqueeze(0))
-                net_outs = net(frame_trans)
-                nms_outs = NMS(net_outs, args.traditional_nms)
-                results = after_nms(nms_outs, img_h, img_w, crop_masks=not args.no_crop, visual_thre=args.visual_thre)
-                torch.cuda.synchronize()
+            frame_origin = torch.from_numpy(vid.read()[1]).cuda().float()
+            img_h, img_w = frame_origin.shape[0], frame_origin.shape[1]
+            frame_trans = FastBaseTransform()(frame_origin.unsqueeze(0))
+            net_outs = net(frame_trans)
+            nms_outs = NMS(net_outs, args.traditional_nms)
+            results = after_nms(nms_outs, img_h, img_w, crop_masks=not args.no_crop, visual_thre=args.visual_thre)
 
-                frame_numpy = draw_img(results, frame_origin, args, class_color=True)
+            torch.cuda.synchronize()
+            temp = time_here
+            time_here = time.time()
+            if i > 0:
+                frame_times.add(time_here - temp)
+                fps = 1 / frame_times.get_avg()
+
+            frame_numpy = draw_img(results, frame_origin, args, class_color=True, fps=fps)
+
+            if args.real_time:
+                cv2.imshow('Detection', frame_numpy)
+                cv2.waitKey(1)
+            else:
                 video_writer.write(frame_numpy)
 
-            if i > 1:
-                frame_times.add(timer.total_time())
-                fps = 1 / frame_times.get_avg()
-                progress = (i + 1) / num_frames * 100
-                progress_bar.set_val(i + 1)
+            progress = (i + 1) / num_frames * 100
+            progress_bar.set_val(i + 1)
+            print(f'\rDetecting: {repr(progress_bar)} {i + 1} / {num_frames} ({progress:.2f}%) {fps:.2f} fps', end='')
 
-                print('\rProcessing Frames  %s %d / %d (%.2f%%) %.2f fps' % (
-                    repr(progress_bar), i + 1, num_frames, progress, fps), end='')
-
-        print(f'\nDone, saved in: results/videos/{name}')
+        if not args.real_time:
+            print(f'\n\nDone, saved in: results/videos/{name}')
 
         vid.release()
         video_writer.release()

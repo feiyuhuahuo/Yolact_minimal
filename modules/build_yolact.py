@@ -209,7 +209,7 @@ class Yolact(nn.Module):
             # 'fpn.downsample_layers.2.weight' and 'fpn.downsample_layers.2.bias'
             # in the pretrained .pth are redundant, remove them
             if key.startswith('fpn.downsample_layers.'):
-                if cfg.fpn is not None and int(key.split('.')[2]) >= cfg.fpn.num_downsample:
+                if int(key.split('.')[2]) >= 2:
                     del state_dict[key]
 
         self.load_state_dict(state_dict)

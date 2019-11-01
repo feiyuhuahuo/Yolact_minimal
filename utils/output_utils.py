@@ -249,7 +249,7 @@ def draw_lincomb(proto_data, masks, img_name):
         plt.savefig(f'results/images/lincomb_{img_name}')
 
 
-def draw_img(results, img, args, class_color=False, mask_alpha=0.45):
+def draw_img(results, img, args, class_color=False, fps=None):
     color_cache = defaultdict(lambda: {})
     img_gpu = img / 255.0
 
@@ -293,10 +293,10 @@ def draw_img(results, img, args, class_color=False, mask_alpha=0.45):
         # Prepare the RGB images for each mask given their color (size [num_dets, h, w, 1])
         colors = torch.cat(
             [get_color(j, on_gpu=img_gpu.device.index).view(1, 1, 1, 3) for j in range(num_considered)], dim=0)
-        masks_color = masks.repeat(1, 1, 1, 3) * colors * mask_alpha
+        masks_color = masks.repeat(1, 1, 1, 3) * colors * 0.45
 
-        # This is 1 everywhere except for 1-mask_alpha where the mask is
-        inv_alph_masks = masks * (-mask_alpha) + 1
+        # This is 1 everywhere except for 1-0.45 where the mask is
+        inv_alph_masks = masks * (-0.45) + 1
 
         masks_color_summand = masks_color[0]
         if num_considered > 1:
@@ -306,8 +306,11 @@ def draw_img(results, img, args, class_color=False, mask_alpha=0.45):
 
         img_gpu = img_gpu * inv_alph_masks.prod(dim=0) + masks_color_summand
 
-    # Then draw the stuff that needs to be done on the cpu
-    # Note, make sure this is a uint8 tensor or opencv will not anti alias text for whatever reason
+    scale = 0.6
+    thickness = 1
+    font = cv2.FONT_HERSHEY_DUPLEX
+    line_type = cv2.LINE_AA
+
     img_numpy = (img_gpu * 255).byte().cpu().numpy()
 
     if not args.hide_bbox:
@@ -318,15 +321,20 @@ def draw_img(results, img, args, class_color=False, mask_alpha=0.45):
 
             cv2.rectangle(img_numpy, (x1, y1), (x2, y2), color, 1)
 
-            _class = cfg.dataset.class_names[class_ids[i]]
-            text_str = '%s: %.2f' % (_class, score) if not args.hide_score else _class
-            font = cv2.FONT_HERSHEY_DUPLEX
-            scale = 0.6
-            thickness = 1
+            class_name = cfg.dataset.class_names[class_ids[i]]
+            text_str = f'{class_name}: {score:.2f}' if not args.hide_score else class_name
 
             text_w, text_h = cv2.getTextSize(text_str, font, scale, thickness)[0]
-
             cv2.rectangle(img_numpy, (x1, y1), (x1 + text_w, y1 + text_h + 5), color, -1)
-            cv2.putText(img_numpy, text_str, (x1, y1 + 15), font, scale, [255, 255, 255], thickness, cv2.LINE_AA)
+            cv2.putText(img_numpy, text_str, (x1, y1 + 15), font, scale, (255, 255, 255), thickness, line_type)
+
+    if args.real_time:
+        fps_str = f'fps: {fps:.2f}'
+        text_w, text_h = cv2.getTextSize(fps_str, font, scale, thickness)[0]
+        # Create a shadow to show the fps more clearly
+        img_numpy = img_numpy.astype(np.float32)
+        img_numpy[0:text_h + 8, 0:text_w + 8] *= 0.6
+        img_numpy = img_numpy.astype(np.uint8)
+        cv2.putText(img_numpy, fps_str, (0, text_h + 2), font, scale, (255, 255, 255), thickness, line_type)
 
     return img_numpy
