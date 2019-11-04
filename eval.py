@@ -6,7 +6,7 @@ from utils.box_utils import bbox_iou, mask_iou
 from utils import timer
 from utils.output_utils import after_nms, NMS
 import pycocotools
-from data.config import cfg, set_cfg
+from data.config import cfg, update_config
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
@@ -18,8 +18,7 @@ from terminaltables import AsciiTable
 from collections import OrderedDict
 
 parser = argparse.ArgumentParser(description='YOLACT COCO Evaluation')
-parser.add_argument('--config', default=None, help='The config object of the model.')
-parser.add_argument('--trained_model', default='weights/yolact_base_54_800000.pth', type=str)
+parser.add_argument('--trained_model', default='yolact_base_54_800000.pth', type=str)
 parser.add_argument('--visual_top_k', default=5, type=int, help='Further restrict the number of predictions to parse')
 parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
 parser.add_argument('--max_num', default=-1, type=int, help='The maximum number of images for test, set to -1 for all.')
@@ -291,7 +290,7 @@ def calc_map(ap_data):
 
     table = [row1, row2, row3]
     table = AsciiTable(table)
-    return table.table
+    return table.table, row3
 
 
 def evaluate(net, dataset, max_num=-1, during_training=False, benchmark=False, cocoapi=False, traditional_nms=False):
@@ -353,9 +352,9 @@ def evaluate(net, dataset, max_num=-1, during_training=False, benchmark=False, c
             print(f'\nJson files dumped, saved in: {json_path}.')
             return
 
-        table = calc_map(ap_data)
+        table, mask_row = calc_map(ap_data)
         print(table)
-        return table
+        return table, mask_row
 
 
 iou_thresholds = [x / 100 for x in range(50, 100, 5)]
@@ -367,11 +366,15 @@ if __name__ == '__main__':
     if not os.path.exists(json_path):
         os.mkdir(json_path)
 
-    if args.config is None:
-        piece = args.trained_model.split('/')[1].split('_')
-        name = f'{piece[0]}_{piece[1]}_config'
-        print(f'\nConfig not specified. Parsed \'{name}\' from the checkpoint name.\n')
-        set_cfg(name)
+    if 'base' in args.trained_model:
+        config = 'yolact_base_config'
+    elif 'pascal' in args.trained_model:
+        config = 'yolact_resnet50_pascal_config'
+    else:
+        config = 'yolact_resnet50_config'
+
+    update_config(config)
+    print(f'\nUsing \'{config}\' according to the trained_model.\n')
 
     with torch.no_grad():
         if cuda:
@@ -385,7 +388,7 @@ if __name__ == '__main__':
 
         print('Loading model...')
         net = Yolact()
-        net.load_weights(args.trained_model)
+        net.load_weights('weights/' + args.trained_model)
         net.eval()
 
         if cuda:

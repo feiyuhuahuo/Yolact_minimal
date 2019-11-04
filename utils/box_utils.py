@@ -121,13 +121,13 @@ def make_anchors(conv_h, conv_w, scale):
         x = (i + 0.5) / conv_w
         y = (j + 0.5) / conv_h
 
-        for ar in cfg.backbone.aspect_ratios:
+        for ar in cfg.aspect_ratios:
             ar = sqrt(ar)
-            w = scale * ar / cfg.max_size
-            h = scale / ar / cfg.max_size
+            w = scale * ar / cfg.img_size
+            h = scale / ar / cfg.img_size
 
             # This is for backward compatability with a bug where I made everything square by accident
-            if cfg.backbone.use_square_anchors:  # True
+            if cfg.use_square_anchors:  # True
                 h = w
 
             prior_data += [x, y, w, h]

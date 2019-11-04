@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from data.config import cfg
+from data.config import cfg, mask_proto_net, extra_head_net
 from modules.backbone import construct_backbone
 from utils.box_utils import make_anchors
 from utils import timer
@@ -36,11 +36,6 @@ class InterpolateModule(nn.Module):
 def make_net(in_channels, cfg_net, include_last_relu=True):
     def make_layer(layer_cfg):
         nonlocal in_channels
-
-        # ( 256, 3, {}) -> conv
-        # ( 256,-2, {}) -> deconv
-        # (None,-2, {}) -> bilinear interpolate
-        # ('cat',[],{}) -> concat the subnetworks in the list
 
         if isinstance(layer_cfg[0], str):
             layer_name = layer_cfg[0]
@@ -77,14 +72,14 @@ def make_net(in_channels, cfg_net, include_last_relu=True):
 
 
 class PredictionModule(nn.Module):
-    def __init__(self, in_channels):
+    def __init__(self, in_channels, coef_dim):
         super().__init__()
 
         self.num_classes = cfg.num_classes
-        self.coef_dim = cfg.coef_dim
-        self.num_priors = len(cfg.backbone.aspect_ratios)
+        self.coef_dim = coef_dim
+        self.num_priors = len(cfg.aspect_ratios)
 
-        self.upfeature, out_channels = make_net(in_channels, cfg.extra_head_net)
+        self.upfeature, out_channels = make_net(in_channels, extra_head_net)
         self.bbox_layer = nn.Conv2d(out_channels, self.num_priors * 4, kernel_size=3, padding=1)
         self.conf_layer = nn.Conv2d(out_channels, self.num_priors * self.num_classes, kernel_size=3, padding=1)
         self.mask_layer = nn.Conv2d(out_channels, self.num_priors * self.coef_dim, kernel_size=3, padding=1)
@@ -165,7 +160,7 @@ class Yolact(nn.Module):
         if cfg.freeze_bn:
             self.freeze_bn()
 
-        self.proto_net, cfg.coef_dim = make_net(256, cfg.mask_proto_net, include_last_relu=False)
+        self.proto_net, coef_dim = make_net(256, mask_proto_net, include_last_relu=False)
         '''  
         self.proto_net:
         Sequential((0): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
@@ -185,7 +180,7 @@ class Yolact(nn.Module):
         self.selected_layers = [0, 1, 2, 3, 4]
         # create a ModuleList to match with the original pre-trained weights (original model state_dict)
         self.prediction_layers = nn.ModuleList()
-        self.prediction_layers.append(PredictionModule(256))
+        self.prediction_layers.append(PredictionModule(in_channels=256, coef_dim=coef_dim))
         '''  
         self.prediction_layers:
         ModuleList(
@@ -248,20 +243,20 @@ class Yolact(nn.Module):
 
             '''
             outs:
-            (n, 3, 550, 550) -> backbone -> (n, 256, 138, 138) -> fpn -> [n, 256, 69, 69] P3
-                                            (n, 512, 69, 69)             [n, 256, 35, 35] P4
-                                            (n, 1024, 35, 35)            [n, 256, 18, 18] P5
-                                            (n, 2048, 18, 18)            [n, 256, 9, 9]   P6
-                                                                         [n, 256, 5, 5]   P7
+            (n, 3, 550, 550) -> backbone -> (n, 256, 138, 138) -> fpn -> (n, 256, 69, 69) P3
+                                            (n, 512, 69, 69)             (n, 256, 35, 35) P4
+                                            (n, 1024, 35, 35)            (n, 256, 18, 18) P5
+                                            (n, 2048, 18, 18)            (n, 256, 9, 9)   P6
+                                                                         (n, 256, 5, 5)   P7
             '''
         if isinstance(self.anchors, list):
             for i, shape in enumerate([list(aa.shape) for aa in outs]):
-                self.anchors += make_anchors(shape[2], shape[3], cfg.backbone.scales[i])
+                self.anchors += make_anchors(shape[2], shape[3], cfg.scales[i])
             self.anchors = torch.Tensor(self.anchors).view(-1, 4).cuda()
 
         with timer.env('proto'):
             # outs[0]: [2, 256, 69, 69], the feature map from P3
-            proto_out = self.proto_net(outs[0])  # proto_out: [2, 32, 138, 138]
+            proto_out = self.proto_net(outs[0])  # proto_out: (n, 32, 138, 138)
             proto_out = F.relu(proto_out, inplace=True)
             proto_out = proto_out.permute(0, 2, 3, 1).contiguous()
 

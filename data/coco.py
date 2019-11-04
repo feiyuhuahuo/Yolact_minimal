@@ -3,7 +3,7 @@ import torch
 import torch.utils.data as data
 import cv2
 import numpy as np
-from .config import COCO_LABEL_MAP
+from data.config import COCO_LABEL_MAP
 from pycocotools.coco import COCO
 
 
@@ -28,15 +28,15 @@ class COCODetection(data.Dataset):
         self.coco = COCO(info_file)
         self.ids = list(self.coco.imgToAnns.keys())
         self.augmentation = augmentation
+        self.label_map = COCO_LABEL_MAP
 
-    @staticmethod
-    def get_box_list(target, width, height):
+    def get_box_list(self, target, width, height):
         scale = np.array([width, height, width, height])
         box_list = []
         for obj in target:
             if 'bbox' in obj:
                 bbox = obj['bbox']
-                label_idx = COCO_LABEL_MAP[obj['category_id']] - 1
+                label_idx = self.label_map[obj['category_id']] - 1
                 final_box = list(np.array([bbox[0], bbox[1], bbox[0] + bbox[2], bbox[1] + bbox[3]]) / scale)
                 final_box.append(label_idx)
                 box_list += [final_box]  # (xmin, ymin, xmax, ymax, label_idx), between 0~1

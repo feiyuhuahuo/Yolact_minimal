@@ -4,7 +4,7 @@ from modules.build_yolact import Yolact
 from utils.augmentations import FastBaseTransform
 from utils.functions import MovingAverage, ProgressBar
 from utils import timer
-from data.config import set_cfg
+from data.config import update_config
 from utils.output_utils import NMS, after_nms, draw_img
 import torch
 import torch.backends.cudnn as cudnn
@@ -15,7 +15,6 @@ import os
 import time
 
 parser = argparse.ArgumentParser(description='YOLACT COCO Evaluation')
-parser.add_argument('--config', default=None, help='The config object of the model.')
 parser.add_argument('--trained_model', default='weights/yolact_base_54_800000.pth', type=str)
 parser.add_argument('--visual_top_k', default=100, type=int, help='Further restrict the number of predictions to parse')
 parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
@@ -28,17 +27,12 @@ parser.add_argument('--no_crop', default=False, action='store_true',
                     help='Do not crop output masks with the predicted bounding box.')
 parser.add_argument('--image', default=None, type=str, help='The folder of images for detecting.')
 parser.add_argument('--video', default=None, type=str,
-                    help='A path to a video to evaluate on. Passing a number means using the related webcam.')
+                    help='The path of the video to evaluate. Pass a number to use the related webcam.')
 parser.add_argument('--real_time', default=False, action='store_true', help='Show the detection results real-timely.')
 parser.add_argument('--visual_thre', default=0.3, type=float,
                     help='Detections with a score under this threshold will be removed.')
 
 args = parser.parse_args()
-if args.config is None:
-    piece = args.trained_model.split('/')[1].split('_')
-    name = f'{piece[0]}_{piece[1]}_config'
-    print(f'\nConfig not specified. Parsed \'{name}\' from the checkpoint name.\n')
-    set_cfg(name)
 
 img_path = 'results/images'
 video_path = 'results/videos'
@@ -46,6 +40,16 @@ if not os.path.exists(img_path):
     os.mkdir(img_path)
 if not os.path.exists(video_path):
     os.mkdir(video_path)
+
+if 'base' in args.trained_model:
+    config = 'yolact_base_config'
+elif 'pascal' in args.trained_model:
+    config = 'yolact_resnet50_pascal_config'
+else:
+    config = 'yolact_resnet50_config'
+
+update_config(config)
+print(f'\nUsing \'{config}\' according to the trained_model.\n')
 
 with torch.no_grad():
     cuda = torch.cuda.is_available()

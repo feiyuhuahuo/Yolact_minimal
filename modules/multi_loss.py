@@ -17,13 +17,13 @@ class Multi_Loss(nn.Module):
 
     def ohem_conf_loss(self, class_p, conf_gt, positive_bool):
         # Compute max conf across batch for hard negative mining
-        batch_conf = class_p.view(-1, self.num_classes)  # [38496, 81]
+        batch_conf = class_p.view(-1, self.num_classes)  # (38496, 81)
 
         batch_conf_max = batch_conf.data.max()
         mark = torch.log(torch.sum(torch.exp(batch_conf - batch_conf_max), 1)) + batch_conf_max - batch_conf[:, 0]
 
         # Hard Negative Mining
-        mark = mark.view(class_p.size(0), -1)  # [2, 19248]
+        mark = mark.view(class_p.size(0), -1)  # (n, 19248)
         mark[positive_bool] = 0  # filter out pos boxes
         mark[conf_gt < 0] = 0  # filter out neutrals (conf_gt = -1)
 
@@ -57,7 +57,7 @@ class Multi_Loss(nn.Module):
         proto_w = proto_p.size(2)  # 138
 
         loss_m = 0
-        for i in range(coef_p.size(0)):  # coef_p.shape: (2, 19248, 32)
+        for i in range(coef_p.size(0)):  # coef_p.shape: (n, 19248, 32)
             with torch.no_grad():
                 # downsample the gt mask to the size of 'proto_p'
                 downsampled_masks = F.interpolate(mask_gt[i].unsqueeze(0), (proto_h, proto_w), mode='bilinear',
@@ -76,8 +76,6 @@ class Multi_Loss(nn.Module):
             # If exceeds the number of masks for training, select a random subset
             old_num_pos = pos_coef.size(0)
             if old_num_pos > cfg.masks_to_train:
-                # torch.manual_seed(10)
-                # torch.cuda.manual_seed(10)
                 perm = torch.randperm(pos_coef.size(0))
                 select = perm[:cfg.masks_to_train]
 
@@ -110,7 +108,7 @@ class Multi_Loss(nn.Module):
     @staticmethod
     def semantic_segmentation_loss(segmentation_p, mask_gt, class_gt):
         # Note classes here exclude the background class, so num_classes = cfg.num_classes-1
-        batch_size, num_classes, mask_h, mask_w = segmentation_p.size()  # [2, 80, 69, 69]
+        batch_size, num_classes, mask_h, mask_w = segmentation_p.size()  # (n, 80, 69, 69)
         loss_s = 0
 
         for i in range(batch_size):
@@ -134,11 +132,11 @@ class Multi_Loss(nn.Module):
 
     def forward(self, predictions, box_class, mask_gt, num_crowds):
         # if use DataParallel, predictions here are the merged results from multiple GPUs
-        box_p = predictions['box']  # (2, 19248, 4)
-        class_p = predictions['class']  # (2, 19248, 81)
-        coef_p = predictions['coef']  # (2, 19248, 32)
+        box_p = predictions['box']  # (n, 19248, 4)
+        class_p = predictions['class']  # (n, 19248, 81)
+        coef_p = predictions['coef']  # (n, 19248, 32)
         priors = predictions['anchors']  # (19248, 4)
-        proto_p = predictions['proto']  # (2, 138, 138, 32)
+        proto_p = predictions['proto']  # (n, 138, 138, 32)
 
         class_gt = [None] * len(box_class)  # Used in sem segm loss
         batch_size = box_p.size(0)
@@ -174,14 +172,14 @@ class Multi_Loss(nn.Module):
         #          '0' means background, '>0' means foreground.
         # prior_max_box: the corresponding max IoU gt box for each prior
         # prior_max_index: the index of the corresponding max IoU gt box for each prior
-        all_offsets = Variable(all_offsets, requires_grad=False)  # [2, 19248, 4]
-        conf_gt = Variable(conf_gt, requires_grad=False)  # [2, 19248]
-        prior_max_index = Variable(prior_max_index, requires_grad=False)  # [2, 19248]
+        all_offsets = Variable(all_offsets, requires_grad=False)  # (n, 19248, 4)
+        conf_gt = Variable(conf_gt, requires_grad=False)  # (n, 19248)
+        prior_max_index = Variable(prior_max_index, requires_grad=False)  # (n, 19248)
 
         losses = {}
         # Localization loss (Smooth L1)
         # only compute losses from positive samples
-        positive_bool = conf_gt > 0  # [2, 19248]
+        positive_bool = conf_gt > 0  # (n, 19248)
 
         num_pos = positive_bool.sum(dim=1, keepdim=True)
 
@@ -202,10 +200,5 @@ class Multi_Loss(nn.Module):
                 losses[aa] /= total_num_pos
             else:
                 losses[aa] /= batch_size
-
-        #  - B: Box Localization Loss
-        #  - C: Class Confidence Loss
-        #  - M: Mask Loss
-        #  - S: Semantic Segmentation Loss
 
         return losses

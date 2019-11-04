@@ -15,10 +15,10 @@ def intersect(box_a, box_b):
 
 def jaccard_numpy(box_a, box_b):
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, 2]-box_a[:, 0]) *
-              (box_a[:, 3]-box_a[:, 1]))  # [A,B]
-    area_b = ((box_b[2]-box_b[0]) *
-              (box_b[3]-box_b[1]))  # [A,B]
+    area_a = ((box_a[:, 2] - box_a[:, 0]) *
+              (box_a[:, 3] - box_a[:, 1]))  # [A,B]
+    area_b = ((box_b[2] - box_b[0]) *
+              (box_b[3] - box_b[1]))  # [A,B]
     union = area_a + area_b - inter
 
     return inter / union  # [A,B]
@@ -29,6 +29,7 @@ class Compose(object):
     Args:
         transforms (List[Transform]): list of transforms to compose.
     """
+
     def __init__(self, transforms):
         self.transforms = transforms
 
@@ -72,6 +73,7 @@ class Pad(object):
 
     Note: this expects im_w <= width and im_h <= height
     """
+
     def __init__(self, width, height, pad_gt=True):
         self.width = width
         self.height = height
@@ -96,22 +98,23 @@ class Resize(object):
     """
     The same resizing scheme as used in faster R-CNN https://arxiv.org/pdf/1506.01497.pdf
     We resize the image so that the shorter side is min_size.
-    If the longer side is then over max_size, we instead resize the image so the long side is max_size.
+    If the longer side is then over img_size, we instead resize the image so the long side is img_size.
     """
+
     def __init__(self, resize_gt=True):
         self.resize_gt = resize_gt
-        self.max_size = cfg.max_size
+        self.img_size = cfg.img_size
 
     def __call__(self, image, masks, boxes, labels=None):
         img_h, img_w, _ = image.shape
-        width, height = self.max_size, self.max_size
+        width, height = self.img_size, self.img_size
         image = cv2.resize(image, (width, height))
 
         if self.resize_gt:
             # Act like each object is a color channel
             masks = masks.transpose((1, 2, 0))
             masks = cv2.resize(masks, (width, height))
-            
+
             # OpenCV resizes a (w,h,1) array to (s,s), so fix that
             if len(masks.shape) == 2:
                 masks = np.expand_dims(masks, 0)
@@ -119,7 +122,7 @@ class Resize(object):
                 masks = masks.transpose((2, 0, 1))
 
             # Scale bounding boxes (which are currently absolute coordinates)
-            boxes[:, [0, 2]] *= (width  / img_w)
+            boxes[:, [0, 2]] *= (width / img_w)
             boxes[:, [1, 3]] *= (height / img_h)
 
         return image, masks, boxes, labels
@@ -229,6 +232,7 @@ class RandomSampleCrop(object):
             boxes (Tensor): the adjusted bounding boxes in pt form
             labels (Tensor): the class labels for each bbox
     """
+
     def __init__(self):
         self.sample_options = (
             # using entire original input image
@@ -270,7 +274,7 @@ class RandomSampleCrop(object):
                 top = random.uniform(height - h)
 
                 # convert to integer rect x1,y1,x2,y2
-                rect = np.array([int(left), int(top), int(left+w), int(top+h)])
+                rect = np.array([int(left), int(top), int(left + w), int(top + h)])
 
                 # calculate IoU (jaccard overlap) b/t the cropped and gt boxes
                 overlap = jaccard_numpy(boxes, rect)
@@ -286,7 +290,7 @@ class RandomSampleCrop(object):
 
                 # cut the crop from the image
                 current_image = current_image[rect[1]:rect[3], rect[0]:rect[2],
-                                              :]
+                                :]
 
                 # keep overlap with gt box IF center in sampled patch
                 centers = (boxes[:, :2] + boxes[:, 2:]) / 2.0
@@ -309,7 +313,7 @@ class RandomSampleCrop(object):
 
                 # have any valid boxes? try again if not
                 # Also make sure you have at least one regular gt
-                if not mask.any() or np.sum(1-crowd_mask[mask]) == 0:
+                if not mask.any() or np.sum(1 - crowd_mask[mask]) == 0:
                     continue
 
                 # take only the matching gt masks
@@ -352,15 +356,15 @@ class Expand(object):
 
         height, width, depth = image.shape
         ratio = random.uniform(1, 4)
-        left = random.uniform(0, width*ratio - width)
-        top = random.uniform(0, height*ratio - height)
+        left = random.uniform(0, width * ratio - width)
+        top = random.uniform(0, height * ratio - height)
 
-        expand_image = np.zeros((int(height*ratio), int(width*ratio), depth), dtype=image.dtype)
+        expand_image = np.zeros((int(height * ratio), int(width * ratio), depth), dtype=image.dtype)
         expand_image[:, :, :] = MEANS
         expand_image[int(top):int(top + height), int(left):int(left + width)] = image
         image = expand_image
 
-        expand_masks = np.zeros((masks.shape[0], int(height*ratio), int(width*ratio)), dtype=masks.dtype)
+        expand_masks = np.zeros((masks.shape[0], int(height * ratio), int(width * ratio)), dtype=masks.dtype)
         expand_masks[:, int(top):int(top + height), int(left):int(left + width)] = masks
         masks = expand_masks
 
@@ -412,9 +416,10 @@ class BackboneTransform(object):
     Transforms a BRG image made of floats in the range [0, 255] to whatever
     input the current backbone network needs.
     """
+
     def __init__(self, in_channel_order):
         self.mean = np.array(MEANS, dtype=np.float32)
-        self.std  = np.array(STD,  dtype=np.float32)
+        self.std = np.array(STD, dtype=np.float32)
         self.transform = cfg.backbone.transform
 
         # Here I use "Algorithms and Coding" to convert string permutations to numbers
@@ -443,7 +448,7 @@ class BaseTransform(object):
     def __init__(self):
         self.augment = Compose([ConvertFromInts(),
                                 Resize(resize_gt=False),
-                                Pad(cfg.max_size, cfg.max_size, pad_gt=False),
+                                Pad(cfg.img_size, cfg.img_size, pad_gt=False),
                                 BackboneTransform('BGR')])
 
     def __call__(self, img, masks=None, boxes=None, labels=None):
@@ -461,16 +466,16 @@ class FastBaseTransform(torch.nn.Module):
         super().__init__()
 
         self.mean = torch.Tensor(MEANS).float().cuda()[None, :, None, None]
-        self.std  = torch.Tensor( STD ).float().cuda()[None, :, None, None]
+        self.std = torch.Tensor(STD).float().cuda()[None, :, None, None]
         self.transform = cfg.backbone.transform
 
     def forward(self, img):
         self.mean = self.mean.to(img.device)
-        self.std  = self.std.to(img.device)
-        
+        self.std = self.std.to(img.device)
+
         # img assumed to be a pytorch BGR image with channel order [n, h, w, c]
         img = img.permute(0, 3, 1, 2).contiguous()
-        img = F.interpolate(img, (cfg.max_size, cfg.max_size), mode='bilinear', align_corners=False)
+        img = F.interpolate(img, (cfg.img_size, cfg.img_size), mode='bilinear', align_corners=False)
 
         if self.transform.normalize:
             img = (img - self.mean) / self.std
@@ -478,10 +483,10 @@ class FastBaseTransform(torch.nn.Module):
             img = (img - self.mean)
         elif self.transform.to_float:
             img = img / 255
-        
+
         if self.transform.channel_order != 'RGB':
             raise NotImplementedError
-        
+
         img = img[:, (2, 1, 0), :, :].contiguous()
 
         # Return value is in channel order [n, c, h, w] and RGB
@@ -497,7 +502,7 @@ class SSDAugmentation(object):
                                 RandomSampleCrop(),
                                 RandomMirror(),
                                 Resize(),
-                                Pad(cfg.max_size, cfg.max_size),
+                                Pad(cfg.img_size, cfg.img_size),
                                 ToPercentCoords(),
                                 BackboneTransform('BGR')])
 

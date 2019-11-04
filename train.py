@@ -5,7 +5,7 @@ from modules.build_yolact import Yolact
 import time
 import torch
 from modules.multi_loss import Multi_Loss
-from data.config import set_cfg, cfg
+from data.config import cfg, update_config
 from data.coco import COCODetection
 from torch.autograd import Variable
 import torch.nn as nn
@@ -16,15 +16,17 @@ import argparse
 import datetime
 from eval import evaluate
 import os
+import glob
 from data.coco import detection_collate
+import pdb
 
 parser = argparse.ArgumentParser(description='Yolact Training Script')
 parser.add_argument('--config', default='yolact_base_config', help='The config object to use.')
 parser.add_argument('--batch_size', default=8, type=int)
-parser.add_argument('--resume', default=None, type=str, help='The path of checkpoint file to resume training from.')
-parser.add_argument('--val_interval', default=20000, type=int,
+parser.add_argument('--img_size', default=550, type=int, help='The image size for training.')
+parser.add_argument('--resume', default=None, type=str, help='The path of the weight file to resume training with.')
+parser.add_argument('--val_interval', default=30, type=int,
                     help='Val and save the model every [val_interval] iterations, pass -1 to disable.')
-parser.add_argument('--max_keep', default=10, type=int, help='The maximum number of .pth files to keep.')
 
 
 def set_lr(optimizer, new_lr):
@@ -54,9 +56,9 @@ def compute_val_map(yolact_net):
                                     augmentation=BaseTransform())
         yolact_net.eval()
         print("\nComputing validation mAP...", flush=True)
-        table = evaluate(yolact_net, val_dataset, during_training=True)
+        table, mask_row = evaluate(yolact_net, val_dataset, during_training=True)
         yolact_net.train()
-        return table
+        return table, mask_row[1]
 
 
 def print_result(map_tables):
@@ -66,26 +68,14 @@ def print_result(map_tables):
         print(table, '\n')
 
 
-def save_weights(net, epoch, iteration):
-    net.module.save_weights(f'weights/{cfg.name}_{epoch}_{iteration}.pth')
-
-    path_list = os.listdir('weights')
-    path_list = [aa for aa in path_list if 'yolact_base' in aa]
-    path_list.remove('yolact_base_54_800000.pth')
-    iter_num = [int(aa.split('.')[0].split('_')[-1]) for aa in path_list]
-    iter_num.sort()
-
-    if len(path_list) > args.max_keep:
-        for aa in path_list:
-            if str(iter_num[0]) in aa:
-                os.remove('weights/' + aa)
-
-
 args = parser.parse_args()
-if args.config is not None:
-    set_cfg(args.config)
+update_config(args.config, args.batch_size, args.img_size)
+print('\n' + '-' * 30 + 'Configs' + '-' * 30)
+for k, v in vars(cfg).items():
+    print(f'{k}: {v}')
 
-print(vars(args), '\n')
+# Don't use the timer during training, there's a race condition with multiple GPUs.
+timer.disable_all()
 
 cuda = torch.cuda.is_available()
 if cuda:
@@ -93,35 +83,36 @@ if cuda:
 else:
     torch.set_default_tensor_type('torch.FloatTensor')
 
-dataset = COCODetection(image_path=cfg.dataset.train_images,
-                        info_file=cfg.dataset.train_info,
-                        augmentation=SSDAugmentation())
-
 net = Yolact()
 net.train()
 
-# Don't use the timer during training, there's a race condition with multiple GPUs.
-timer.disable_all()
-
-if args.resume is not None:
-    net.load_weights(args.resume)
-    resume_epoch = int(args.resume.split('.')[0].split('_')[2])
-    resume_iter = int(args.resume.split('.')[0].split('_')[3])
-    print(f'\nResume training at epoch: {resume_epoch}, iteration: {resume_iter}.')
+if args.resume == 'latest':
+    weight = glob.glob('weights/latest*')[0]
+    net.load_weights(weight)
+    resume_iter = int(weight.split('.')[0].split('_')[-1])
+    print(f'\nResume training with \'{weight}\'.\n')
+elif args.resume and 'yolact' in args.resume:
+    net.load_weights('weights/' + args.resume)
+    resume_iter = int(args.resume.split('.')[0].split('_')[-1])
+    print(f'\nResume training with \'{args.resume}\'.\n')
 else:
     net.init_weights(backbone_path='weights/' + cfg.backbone.path)
-    print('\nTraining from begining, weights initialized.')
+    print('\nTraining from begining, weights initialized.\n')
 
 optimizer = optim.SGD(net.parameters(), lr=cfg.lr, momentum=cfg.momentum, weight_decay=cfg.decay)
 criterion = Multi_Loss(num_classes=cfg.num_classes,
-                       pos_thre=cfg.positive_iou_threshold,  # 0.5
-                       neg_thre=cfg.negative_iou_threshold,  # 0.4
+                       pos_thre=cfg.positive_iou_threshold,
+                       neg_thre=cfg.negative_iou_threshold,
                        negpos_ratio=3)
 
 if cuda:
     cudnn.benchmark = True
     net = nn.DataParallel(net).cuda()
     criterion = nn.DataParallel(criterion).cuda()
+
+dataset = COCODetection(image_path=cfg.dataset.train_images,
+                        info_file=cfg.dataset.train_info,
+                        augmentation=SSDAugmentation())
 
 epoch_size = len(dataset) // args.batch_size
 step_index = 0
@@ -177,9 +168,8 @@ try:
             if torch.isfinite(loss).item():
                 optimizer.step()
 
-            # Add the loss to the moving average for bookkeeping
             for k in losses:
-                loss_avgs[k].add(losses[k].item())
+                loss_avgs[k].add(losses[k].item())  # Add the loss to the moving average for bookkeeping
 
             grad_end = time.time()
             if not (i == 0 and epoch == start_epoch):
@@ -201,22 +191,32 @@ try:
                     [epoch, iter] + loss_labels + [total, cur_lr, t_data, t_forward, iter_time, eta_str]), flush=True)
 
             if args.val_interval > 0 and iter % args.val_interval == 0:
-                print(f'Saving network at epoch: {epoch}, iteration: {iter}.\n')
-                save_weights(net, epoch, iter)
-
                 info = (('iteration: %7d |' + (' %s: %.3f |' * len(losses)) + ' T: %.3f | lr: %.5f')
                         % tuple([iter] + loss_labels + [total, cur_lr]))
-                table = compute_val_map(net.module)
+                table, mask_map = compute_val_map(net.module)
+
+                weight = glob.glob('weights/best*')
+                best_mask_map = float(weight.split('/')[-1].split('_')[1]) if weight else 0.
+
+                if mask_map >= best_mask_map:
+                    print(f'Saving the current best model as \'best_{mask_map}_{cfg.name}_{epoch}_{iter}.pth\'.\n')
+                    if weight:
+                        os.remove(weight[0])
+                    net.module.save_weights(f'weights/best_{mask_map}_{cfg.name}_{epoch}_{iter}.pth')
+
                 map_tables.append((info, table))
 
 except KeyboardInterrupt:
-    print(f'\nStopped, saving network at epoch: {epoch}, iteration: {iter}.\n')
-    save_weights(net, epoch, iter)
+    print(f'\nStopped, saving the latest model as \'latest_{cfg.name}_{epoch}_{iter}.pth\'.\n')
+    weight = glob.glob('weights/latest*')
+    if weight:
+        os.remove(weight[0])
 
+    net.module.save_weights(f'weights/latest_{cfg.name}_{epoch}_{iter}.pth')
     print_result(map_tables)
     exit()
 
-print(f'Training completed, saving network at epoch: {epoch}, iteration: {iter}.\n')
-save_weights(net, epoch, iter)
+print(f'Training completed, saving the final model as \'{cfg.name}_{epoch}_{iter}.pth\'.\n')
+net.module.save_weights(f'weights/{cfg.name}_{epoch}_{iter}.pth')
 
 print_result(map_tables)
