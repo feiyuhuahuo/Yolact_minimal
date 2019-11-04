@@ -16,7 +16,15 @@ Other common packages.
 ## Prepare
 - Firstly, modify the paths of training and val datasets in `data/config.py` in line 72-77.  
 - If some directories are missed, just create them by yourself.   
-- Download the pretrained weights.  
+- Download the pretrained weights.
+
+
+| Backbone  | box mAP  | mask mAP  | Google Drive                                                                                                         |Baidu Cloud                                              |
+|:---------:|:--------:|:---------:|----------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------|
+| Resnet50  | 30.25    | 28.04     | [yolact_resnet50_54_800000.pth](https://drive.google.com/file/d/1yp7ZbbDwvMiFJEq4ptVKTYTI2VeRDXl0/view?usp=sharing)  | [mksf](https://pan.baidu.com/s/1XDeDwg1Xw9GJCucJNqdNZw) |
+| Resnet101 | 32.54    | 29.83     | [yolact_base_54_800000.pth](https://drive.google.com/file/d/1UYy3dMapbH1BnmtZU4WH1zbYgOzzHHf_/view?usp=sharing)      | [oubr](https://pan.baidu.com/s/1uX_v1RPISxgwQ2LdsbJrJQ) |
+
+
 [ImageNet pretrained weights](https://drive.google.com/file/d/1tvqFPd4bJtakOlmn-uIA492g2qurRChj/view?usp=sharing)   
 [Yolact pretrained weights](https://drive.google.com/file/d/1UYy3dMapbH1BnmtZU4WH1zbYgOzzHHf_/view?usp=sharing)    
 
