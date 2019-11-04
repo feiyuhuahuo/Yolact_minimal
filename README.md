@@ -57,6 +57,8 @@ python eval.py --trained_model=weights/yolact_base_54_800000.pth --benchmark --m
 python detect.py --trained_model=weights/yolact_base_54_800000.pth --image images
 # Detect a video, pass the path of your video to --video.
 python detect.py --trained_model=weights/yolact_base_54_800000.pth --video video/1.mp4
+# Use --real_time to detect real-timely.
+python detect.py --trained_model=weights/yolact_base_54_800000.pth --video video/1.mp4 --real_time
 # Use --hide_mask, --hide_score, --show_lincomb and so on to get different results.
 python detect.py --trained_model=weights/yolact_base_54_800000.pth --image images --hide_mask
 ```
