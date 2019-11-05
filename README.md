@@ -8,10 +8,10 @@ Following instruction is based on resnet-101.
 ### The network structure.  
 ![Example 0](data/network.png)
 
-## Environments
-PyTorch >= 1.1.
-Python >= 3.6.
-Other common packages.   
+## Environments  
+PyTorch >= 1.1.  
+Python >= 3.6.  
+Other common packages.  
 
 ## Prepare
 - Download COCO 2017 datasets, modify the paths of training and evalution datasets in `data/config.py`.
