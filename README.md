@@ -18,13 +18,15 @@ Other common packages.
 - If some directories are missed, just create them by yourself.   
 - Download weights.
 
-Yolact trained weights.
-| Backbone  | box mAP  | mask mAP  | Google Drive                                                                                                         |Baidu Cloud                                                        |
-|:---------:|:--------:|:---------:|----------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
-| Resnet50  | 30.25    | 28.04     | [yolact_resnet50_54_800000.pth](https://drive.google.com/file/d/1yp7ZbbDwvMiFJEq4ptVKTYTI2VeRDXl0/view?usp=sharing)  | [password: mksf](https://pan.baidu.com/s/1XDeDwg1Xw9GJCucJNqdNZw) |
-| Resnet101 | 32.54    | 29.83     | [yolact_base_54_800000.pth](https://drive.google.com/file/d/1UYy3dMapbH1BnmtZU4WH1zbYgOzzHHf_/view?usp=sharing)      | [password: oubr](https://pan.baidu.com/s/1uX_v1RPISxgwQ2LdsbJrJQ) |
+Yolact trained weights.  
 
-ImageNet pre-trained weights.
+|Backbone   | box mAP  | mask mAP  | Google Drive                                                                                                         |Baidu Cloud          |
+|:---------:|:--------:|:---------:|:--------------------------------------------------------------------------------------------------------------------:|:----------------------------------------------------------------:|
+|Resnet50   | 30.25    | 28.04     | [yolact_resnet50_54_800000.pth](https://drive.google.com/file/d/1yp7ZbbDwvMiFJEq4ptVKTYTI2VeRDXl0/view?usp=sharing)  |[password: mksf](https://pan.baidu.com/s/1XDeDwg1Xw9GJCucJNqdNZw) |
+|Resnet101  | 32.54    | 29.83     | [yolact_base_54_800000.pth](https://drive.google.com/file/d/1UYy3dMapbH1BnmtZU4WH1zbYgOzzHHf_/view?usp=sharing)      |[password: oubr](https://pan.baidu.com/s/1uX_v1RPISxgwQ2LdsbJrJQ) |
+
+ImageNet pre-trained weights.  
+
 | Backbone  | Google Drive                                                                                                    |Baidu Cloud                                                        |
 |:---------:|:---------------------------------------------------------------------------------------------------------------:|:-----------------------------------------------------------------:|
 | Resnet50  | [resnet50-19c8e357.pth](https://drive.google.com/file/d/1Jy3yCdbatgXa5YYIdTCRrSV0S9V5g1rn/view?usp=sharing)     | [password: a6ee](https://pan.baidu.com/s/1aFLE-e1KdH_FxRlisWzTHw) |
@@ -82,8 +84,8 @@ python detect.py --trained_model=yolact_base_54_800000.pth --image images --hide
 ```Shell
 python utils/pascal2coco.py
 ```
-- Download the pre-trained weights.
-[Google dirve](https://drive.google.com/open?id=1ExrRSPVctHW8Nxrn0SofU1lVhK5Wn0_S), [Baidu Cloud: eg7b](https://pan.baidu.com/s/1KM5yV4IxHiAX4Iwn5G_TuA)
+- Download the Yolact trained weights.
+[Google dirve](https://drive.google.com/open?id=1ExrRSPVctHW8Nxrn0SofU1lVhK5Wn0_S),   [Baidu Cloud: eg7b](https://pan.baidu.com/s/1KM5yV4IxHiAX4Iwn5G_TuA)
 
 ```Shell
 # Training.
