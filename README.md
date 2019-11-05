@@ -20,7 +20,7 @@ Other common packages.
 
 Yolact trained weights.
 | Backbone  | box mAP  | mask mAP  | Google Drive                                                                                                         |Baidu Cloud                                                        |
-|:---------:|:--------:|:---------:|:--------------------------------------------------------------------------------------------------------------------:|:-----------------------------------------------------------------:|
+|:---------:|:--------:|:---------:|----------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------|
 | Resnet50  | 30.25    | 28.04     | [yolact_resnet50_54_800000.pth](https://drive.google.com/file/d/1yp7ZbbDwvMiFJEq4ptVKTYTI2VeRDXl0/view?usp=sharing)  | [password: mksf](https://pan.baidu.com/s/1XDeDwg1Xw9GJCucJNqdNZw) |
 | Resnet101 | 32.54    | 29.83     | [yolact_base_54_800000.pth](https://drive.google.com/file/d/1UYy3dMapbH1BnmtZU4WH1zbYgOzzHHf_/view?usp=sharing)      | [password: oubr](https://pan.baidu.com/s/1uX_v1RPISxgwQ2LdsbJrJQ) |
 
@@ -77,7 +77,7 @@ python detect.py --trained_model=yolact_base_54_800000.pth --image images --hide
 ```
 
 ## Train on PASCAL_SBD datasets
-- Download PASCAL_SBD datasets from [here](http://home.bharathh.info/pubs/codes/SBD/download.html), modify the path of `img` folder in `data/config.py`.
+- Download PASCAL_SBD datasets from [here](http://home.bharathh.info/pubs/codes/SBD/download.html), modify the path of the `img` folder in `data/config.py`.
 - Then,
 ```Shell
 python utils/pascal2coco.py
