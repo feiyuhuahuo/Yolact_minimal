@@ -60,10 +60,10 @@ with torch.no_grad():
     else:
         torch.set_default_tensor_type('torch.FloatTensor')
 
-    print('Loading model...')
     net = Yolact()
     net.load_weights(args.trained_model)
     net.eval()
+    print('Model loaded.\n')
 
     if cuda:
         net = net.cuda()
@@ -91,7 +91,7 @@ with torch.no_grad():
             img_numpy = draw_img(results, img_origin, args)
 
             cv2.imwrite(f'{img_path}/{img_name}', img_numpy)
-            print(f'\n{i + 1}/{num}', end='\r')
+            print(f'\r{i + 1}/{num}', end='')
 
         print('\nDone.')
 

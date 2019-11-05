@@ -1,32 +1,31 @@
-from utils.augmentations import SSDAugmentation, BaseTransform
-from utils.functions import MovingAverage
-from utils import timer
-from modules.build_yolact import Yolact
 import time
 import torch
-from modules.multi_loss import Multi_Loss
-from data.config import cfg, update_config
-from data.coco import COCODetection
-from torch.autograd import Variable
 import torch.nn as nn
 import torch.optim as optim
 import torch.backends.cudnn as cudnn
 import torch.utils.data as data
 import argparse
 import datetime
-from eval import evaluate
 import os
 import glob
+
+from utils.augmentations import SSDAugmentation, BaseTransform
+from utils.functions import MovingAverage
+from utils import timer
+from modules.build_yolact import Yolact
+from modules.multi_loss import Multi_Loss
+from data.config import cfg, update_config
+from data.coco import COCODetection
+from eval import evaluate
 from data.coco import detection_collate
-import pdb
 
 parser = argparse.ArgumentParser(description='Yolact Training Script')
 parser.add_argument('--config', default='yolact_base_config', help='The config object to use.')
 parser.add_argument('--batch_size', default=8, type=int)
 parser.add_argument('--img_size', default=550, type=int, help='The image size for training.')
 parser.add_argument('--resume', default=None, type=str, help='The path of the weight file to resume training with.')
-parser.add_argument('--val_interval', default=30, type=int,
-                    help='Val and save the model every [val_interval] iterations, pass -1 to disable.')
+parser.add_argument('--val_interval', default=10000, type=int,
+                    help='Evalute and save the model every [val_interval] iterations, pass -1 to disable.')
 
 
 def set_lr(optimizer, new_lr):
@@ -38,13 +37,13 @@ def data_to_device(datum):
     images, targets, masks, num_crowds = datum
 
     if cuda:
-        images = Variable(images.cuda(), requires_grad=False)
-        targets = [Variable(ann.cuda(), requires_grad=False) for ann in targets]
-        masks = [Variable(mask.cuda(), requires_grad=False) for mask in masks]
+        images = images.cuda().detach()
+        targets = [ann.cuda().detach() for ann in targets]
+        masks = [mask.cuda().detach() for mask in masks]
     else:
-        images = Variable(images, requires_grad=False)
-        targets = [Variable(ann, requires_grad=False) for ann in targets]
-        masks = [Variable(mask, requires_grad=False) for mask in masks]
+        images = images.detach()
+        targets = [ann.detach() for ann in targets]
+        masks = [mask.detach() for mask in masks]
 
     return images, targets, masks, num_crowds
 

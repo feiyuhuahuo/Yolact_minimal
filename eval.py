@@ -1,21 +1,24 @@
-from data.coco import COCODetection, COCO_LABEL_MAP
+import os
+import json
+import numpy as np
+import torch
+import pycocotools
+import argparse
+from pycocotools.coco import COCO
+from pycocotools.cocoeval import COCOeval
+from terminaltables import AsciiTable
+from collections import OrderedDict
+import torch.backends.cudnn as cudnn
+from torch.autograd import Variable
+
+from data.coco import COCODetection
 from modules.build_yolact import Yolact
 from utils.augmentations import BaseTransform
 from utils.functions import MovingAverage, ProgressBar
 from utils.box_utils import bbox_iou, mask_iou
 from utils import timer
 from utils.output_utils import after_nms, NMS
-import pycocotools
-from data.config import cfg, update_config
-import numpy as np
-import torch
-import torch.backends.cudnn as cudnn
-from torch.autograd import Variable
-import argparse
-import json
-import os
-from terminaltables import AsciiTable
-from collections import OrderedDict
+from data.config import cfg, update_config, COCO_LABEL_MAP
 
 parser = argparse.ArgumentParser(description='YOLACT COCO Evaluation')
 parser.add_argument('--trained_model', default='yolact_base_54_800000.pth', type=str)
@@ -349,7 +352,23 @@ def evaluate(net, dataset, max_num=-1, during_training=False, benchmark=False, c
     else:
         if cocoapi:
             make_json.dump()
-            print(f'\nJson files dumped, saved in: {json_path}.')
+            print(f'\nJson files dumped, saved in: {json_path}, start evaluting.')
+
+            gt_annotations = COCO(cfg.dataset.valid_info)
+            bbox_dets = gt_annotations.loadRes(f'{json_path}/bbox_detections.json')
+            mask_dets = gt_annotations.loadRes(f'{json_path}/mask_detections.json')
+
+            print('\nEvaluating BBoxes:')
+            bbox_eval = COCOeval(gt_annotations, bbox_dets, 'bbox')
+            bbox_eval.evaluate()
+            bbox_eval.accumulate()
+            bbox_eval.summarize()
+
+            print('\nEvaluating Masks:')
+            bbox_eval = COCOeval(gt_annotations, mask_dets, 'segm')
+            bbox_eval.evaluate()
+            bbox_eval.accumulate()
+            bbox_eval.summarize()
             return
 
         table, mask_row = calc_map(ap_data)
@@ -386,10 +405,10 @@ if __name__ == '__main__':
 
         dataset = COCODetection(cfg.dataset.valid_images, cfg.dataset.valid_info, augmentation=BaseTransform())
 
-        print('Loading model...')
         net = Yolact()
         net.load_weights('weights/' + args.trained_model)
         net.eval()
+        print('Model loaded.\n')
 
         if cuda:
             net = net.cuda()

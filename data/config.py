@@ -41,6 +41,9 @@ COCO_LABEL_MAP = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8,
                   74: 65, 75: 66, 76: 67, 77: 68, 78: 69, 79: 70, 80: 71, 81: 72,
                   82: 73, 84: 74, 85: 75, 86: 76, 87: 77, 88: 78, 89: 79, 90: 80}
 
+PASCAL_LABEL_MAP = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10,
+                    11: 11, 12: 12, 13: 13, 14: 14, 15: 15, 16: 16, 17: 17, 18: 18, 19: 19, 20: 20}
+
 
 class Config(object):
     """
@@ -151,7 +154,8 @@ yolact_base_config = Config({
     'top_k': 200,
     'max_detections': 100,
     # Freeze the backbone bn layer during training, other additional bn layers after the backbone will not be frozen.
-    'freeze_bn': True,
+    'freeze_bn': False,
+    'label_map': COCO_LABEL_MAP,
     'dla_backbone': False})
 
 mask_proto_net = [(256, 3, {'padding': 1}), (256, 3, {'padding': 1}), (256, 3, {'padding': 1}),
@@ -169,6 +173,7 @@ yolact_resnet50_pascal_config = yolact_resnet50_config.copy({
     'max_iter': 120000,
     'lr_steps': (60000, 100000),
     'scales': [32, 64, 128, 256, 512],
+    'label_map': PASCAL_LABEL_MAP,
     'use_square_anchors': False})
 
 
