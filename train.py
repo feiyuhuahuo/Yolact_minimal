@@ -88,11 +88,11 @@ net.train()
 if args.resume == 'latest':
     weight = glob.glob('weights/latest*')[0]
     net.load_weights(weight)
-    resume_iter = int(weight.split('.')[0].split('_')[-1])
+    resume_iter = int(weight.split('.pth')[0].split('_')[-1])
     print(f'\nResume training with \'{weight}\'.\n')
 elif args.resume and 'yolact' in args.resume:
     net.load_weights('weights/' + args.resume)
-    resume_iter = int(args.resume.split('.')[0].split('_')[-1])
+    resume_iter = int(args.resume.split('.pth')[0].split('_')[-1])
     print(f'\nResume training with \'{args.resume}\'.\n')
 else:
     net.init_weights(backbone_path='weights/' + cfg.backbone.path)
@@ -113,7 +113,7 @@ dataset = COCODetection(image_path=cfg.dataset.train_images,
                         info_file=cfg.dataset.train_info,
                         augmentation=SSDAugmentation())
 
-epoch_size = len(dataset) // args.batch_size
+epoch_size = len(dataset) // cfg.batch_size
 step_index = 0
 
 iter = resume_iter if args.resume else 0
@@ -121,7 +121,7 @@ start_epoch = iter // epoch_size
 end_epoch = cfg.max_iter // epoch_size + 1
 remain = epoch_size - (iter % epoch_size)
 
-data_loader = data.DataLoader(dataset, args.batch_size, num_workers=8, shuffle=True,
+data_loader = data.DataLoader(dataset, cfg.batch_size, num_workers=8, shuffle=True,
                               collate_fn=detection_collate, pin_memory=True)
 
 batch_time = MovingAverage()
@@ -171,9 +171,10 @@ try:
                 loss_avgs[k].add(losses[k].item())  # Add the loss to the moving average for bookkeeping
 
             grad_end = time.time()
-            if not (i == 0 and epoch == start_epoch):
-                iter_time = grad_end - temp
-                batch_time.add(iter_time)
+            if i == 0 and epoch == start_epoch:
+                temp = forward_start
+            iter_time = grad_end - temp
+            batch_time.add(iter_time)
             temp = grad_end
 
             if iter % 10 == 0:
