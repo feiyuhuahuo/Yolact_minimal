@@ -8,10 +8,10 @@ Following instruction is based on resnet-101.
 ### The network structure.  
 ![Example 0](data/network.png)
 
-## Environments
-PyTorch >= 1.1.
-Python >= 3.6.
-Other common packages.   
+## Environments  
+PyTorch >= 1.1.  
+Python >= 3.6.  
+Other common packages.  
 
 ## Prepare
 - Download COCO 2017 datasets, modify the paths of training and evalution datasets in `data/config.py`.
@@ -53,13 +53,13 @@ python train.py --config=yolact_base_config --val_interval 20000
 ```Shell
 # Evaluate on COCO val2017 (configs will be parsed according to the model name).
 python eval.py --trained_model=yolact_base_54_800000.pth
-# Evaluate with a specified number of images.
-python eval.py --trained_model=yolact_base_54_800000.pth --max_num=1000
 ```
 The results should be:
 ![Example 1](data/mAP.png)
 
 ```Shell
+# Evaluate with a specified number of images.
+python eval.py --trained_model=yolact_base_54_800000.pth --max_num=1000
 # Create a json file and then use the COCO API to evaluate the COCO detection result.
 python eval.py --trained_model=yolact_base_54_800000.pth --cocoapi
 # Benchmark
@@ -80,7 +80,7 @@ python detect.py --trained_model=yolact_base_54_800000.pth --image images --hide
 
 ## Train on PASCAL_SBD datasets
 - Download PASCAL_SBD datasets from [here](http://home.bharathh.info/pubs/codes/SBD/download.html), modify the path of the `img` folder in `data/config.py`.
-- Then,
+- Then, generate a coco-style json.
 ```Shell
 python utils/pascal2coco.py
 ```
