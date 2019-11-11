@@ -6,3 +6,5 @@ images/
 *.bin
 results/
 test~~.py
+*.mp4
+*.avi

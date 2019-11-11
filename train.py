@@ -194,7 +194,7 @@ try:
                         % tuple([iter] + loss_labels + [total, cur_lr]))
                 table, mask_map = compute_val_map(net.module)
 
-                weight = glob.glob('weights/best*')
+                weight = glob.glob('weights/best*')[0]
                 best_mask_map = float(weight.split('/')[-1].split('_')[1]) if weight else 0.
 
                 if mask_map >= best_mask_map:
