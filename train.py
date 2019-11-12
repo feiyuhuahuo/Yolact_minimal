@@ -195,13 +195,13 @@ try:
                         % tuple([iter] + loss_labels + [total, cur_lr]))
                 table, mask_map = compute_val_map(net.module)
 
-                weight = glob.glob('weights/best*')[0]
-                best_mask_map = float(weight.split('/')[-1].split('_')[1]) if weight else 0.
+                weight = glob.glob('weights/best*')
+                best_mask_map = float(weight[0].split('/')[-1].split('_')[1]) if weight else 0.
 
                 if mask_map >= best_mask_map:
-                    print(f'Saving the current best model as \'best_{mask_map}_{cfg.name}_{epoch}_{iter}.pth\'.\n')
                     if weight:
-                        os.remove(weight[0])
+                        os.remove(weight[0])  # remove the last best model
+                    print(f'Saving the current best model as \'best_{mask_map}_{cfg.name}_{epoch}_{iter}.pth\'.\n')
                     net.module.save_weights(f'weights/best_{mask_map}_{cfg.name}_{epoch}_{iter}.pth')
 
                 map_tables.append((info, table))
