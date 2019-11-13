@@ -15,7 +15,6 @@ class MovingAverage:
             return
         
         self.window.append(elem)
-        # self.sum += elem
 
         if len(self.window) > self.max_window_size:
             self.sum -= self.window.popleft()
