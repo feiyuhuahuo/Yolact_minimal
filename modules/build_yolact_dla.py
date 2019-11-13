@@ -1,3 +1,5 @@
+#!/usr/bin/env python 
+# -*- coding:utf-8 -*-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -5,6 +7,7 @@ from data.config import cfg, mask_proto_net, extra_head_net
 from modules.backbone import construct_backbone
 from utils.box_utils import make_anchors
 from utils import timer
+from modules.dla_original import dla60x_fpn
 
 
 class Concat(nn.Module):
@@ -193,6 +196,9 @@ class Yolact(nn.Module):
 
         if cfg.train_semantic:  # True
             self.semantic_seg_conv = nn.Conv2d(256, cfg.num_classes - 1, kernel_size=1)
+
+    def save_weights(self, path):
+        torch.save(self.state_dict(), path)
 
     def load_weights(self, path):
         state_dict = torch.load(path)

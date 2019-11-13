@@ -4,7 +4,7 @@ from collections import deque
 class MovingAverage:
     """ Keeps an average window of the specified number of items. """
 
-    def __init__(self, max_window_size=1000):
+    def __init__(self, max_window_size=100):
         self.max_window_size = max_window_size
         self.reset()
 
@@ -15,14 +15,10 @@ class MovingAverage:
             return
         
         self.window.append(elem)
-        self.sum += elem
+        # self.sum += elem
 
         if len(self.window) > self.max_window_size:
             self.sum -= self.window.popleft()
-    
-    def append(self, elem):
-        """ Same as add just more pythonic. """
-        self.add(elem)
 
     def reset(self):
         """ Resets the MovingAverage to its initial state. """
@@ -31,7 +27,8 @@ class MovingAverage:
 
     def get_avg(self):
         """ Returns the average of the elements in the window. """
-        return self.sum / max(len(self.window), 1)
+        self.window.popleft()
+        return sum(self.window) / max(len(self.window), 1)
 
     def __str__(self):
         return str(self.get_avg())

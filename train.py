@@ -67,6 +67,23 @@ def print_result(map_tables):
         print(table, '\n')
 
 
+def save_best(net):
+    weight = glob.glob('weights/best*')
+    best_mask_map = float(weight[0].split('/')[-1].split('_')[1]) if weight else 0.
+    if mask_map >= best_mask_map:
+        if weight:
+            os.remove(weight[0])  # remove the last best model
+        print(f'\nSaving the current best model as \'best_{mask_map}_{cfg.name}_{epoch}_{iter}.pth\'.\n')
+        torch.save(net.state_dict(), f'weights/best_{mask_map}_{cfg.name}_{epoch}_{iter}.pth')
+
+
+def save_latest(net):
+    weight = glob.glob('weights/latest*')
+    if weight:
+        os.remove(weight[0])
+    torch.save(net.state_dict(), f'weights/latest_{cfg.name}_{epoch}_{iter}.pth')
+
+
 args = parser.parse_args()
 update_config(args.config, args.batch_size, args.img_size)
 print('\n' + '-' * 30 + 'Configs' + '-' * 30)
@@ -126,7 +143,7 @@ data_loader = data.DataLoader(dataset, cfg.batch_size, num_workers=8, shuffle=Tr
 
 batch_time = MovingAverage()
 loss_types = ['B', 'C', 'M', 'S']
-loss_avgs = {k: MovingAverage(100) for k in loss_types}
+loss_avgs = {k: MovingAverage() for k in loss_types}
 map_tables = []
 
 print('Begin training!\n')
@@ -164,6 +181,7 @@ try:
 
             optimizer.zero_grad()
             loss.backward()  # Do this to free up vram even if loss is not finite
+
             if torch.isfinite(loss).item():
                 optimizer.step()
 
@@ -186,37 +204,24 @@ try:
 
                 t_forward = forward_end - forward_start
                 t_data = iter_time - (grad_end - forward_start)
-                time_str = ' T: %.3f | lr: %.5f | t_data: %.3f | t_forward: %.3f | t_total: %.3f | ETA: %s'
+                time_str = ' T: %.3f | lr: %.2e | t_data: %.3f | t_forward: %.3f | t_total: %.3f | ETA: %s'
                 print(('[%3d] %7d |' + (' %s: %.3f |' * len(losses)) + time_str) % tuple(
                     [epoch, iter] + loss_labels + [total, cur_lr, t_data, t_forward, iter_time, eta_str]), flush=True)
 
             if args.val_interval > 0 and iter % args.val_interval == 0:
-                info = (('iteration: %7d |' + (' %s: %.3f |' * len(losses)) + ' T: %.3f | lr: %.5f')
+                info = (('iteration: %7d |' + (' %s: %.3f |' * len(losses)) + ' T: %.3f | lr: %.2e')
                         % tuple([iter] + loss_labels + [total, cur_lr]))
                 table, mask_map = compute_val_map(net.module)
-
-                weight = glob.glob('weights/best*')
-                best_mask_map = float(weight[0].split('/')[-1].split('_')[1]) if weight else 0.
-
-                if mask_map >= best_mask_map:
-                    if weight:
-                        os.remove(weight[0])  # remove the last best model
-                    print(f'Saving the current best model as \'best_{mask_map}_{cfg.name}_{epoch}_{iter}.pth\'.\n')
-                    net.module.save_weights(f'weights/best_{mask_map}_{cfg.name}_{epoch}_{iter}.pth')
-
                 map_tables.append((info, table))
+                save_latest(net)
+                save_best(net)
 
 except KeyboardInterrupt:
     print(f'\nStopped, saving the latest model as \'latest_{cfg.name}_{epoch}_{iter}.pth\'.\n')
-    weight = glob.glob('weights/latest*')
-    if weight:
-        os.remove(weight[0])
-
-    net.module.save_weights(f'weights/latest_{cfg.name}_{epoch}_{iter}.pth')
+    save_latest(net)
     print_result(map_tables)
     exit()
 
-print(f'Training completed, saving the final model as \'{cfg.name}_{epoch}_{iter}.pth\'.\n')
-net.module.save_weights(f'weights/{cfg.name}_{epoch}_{iter}.pth')
-
+print(f'Training completed, saving the final model as \'latest_{cfg.name}_{epoch}_{iter}.pth\'.\n')
+save_latest(net)
 print_result(map_tables)

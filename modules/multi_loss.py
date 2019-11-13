@@ -78,7 +78,6 @@ class Multi_Loss(nn.Module):
             if old_num_pos > cfg.masks_to_train:
                 perm = torch.randperm(pos_coef.size(0))
                 select = perm[:cfg.masks_to_train]
-
                 pos_coef = pos_coef[select]
                 pos_prior_index = pos_prior_index[select]
                 pos_prior_box = pos_prior_box[select]
@@ -131,18 +130,17 @@ class Multi_Loss(nn.Module):
         return loss_s / mask_h / mask_w * cfg.semantic_alpha
 
     def forward(self, predictions, box_class, mask_gt, num_crowds):
-        # if use DataParallel, predictions here are the merged results from multiple GPUs
+        # If DataParallel was used, predictions here are the merged results from multiple GPUs.
         box_p = predictions['box']  # (n, 19248, 4)
         class_p = predictions['class']  # (n, 19248, 81)
         coef_p = predictions['coef']  # (n, 19248, 32)
-        priors = predictions['anchors']  # (19248, 4)
+        anchors = predictions['anchors']  # (19248, 4)
         proto_p = predictions['proto']  # (n, 138, 138, 32)
 
-        class_gt = [None] * len(box_class)  # Used in sem segm loss
+        class_gt = [None] * len(box_class)
         batch_size = box_p.size(0)
-        # TODO: don't understand about DataParallel
-        priors = priors[:box_p.size(1), :]  # Do this because DataParallel cats all GPU's priors together.
-        num_priors = (priors.size(0))  # 19248
+        anchors = anchors[:box_p.size(1), :]  # Do this because DataParallel cats all GPU's anchors together.
+        num_priors = (anchors.size(0))  # 19248
 
         all_offsets = box_p.new(batch_size, num_priors, 4)
         conf_gt = box_p.new(batch_size, num_priors).long()
@@ -165,7 +163,7 @@ class Multi_Loss(nn.Module):
 
             all_offsets[i], conf_gt[i], prior_max_box[i], prior_max_index[i] = match(self.pos_thre, self.neg_thre,
                                                                                      box_gt,
-                                                                                     priors, class_gt[i], crowd_boxes)
+                                                                                     anchors, class_gt[i], crowd_boxes)
 
         # all_offsets: the transformed box coordinate offsets of each pair of prior and gt box
         # conf_gt: the foreground and background labels according to the 'pos_thre' and 'neg_thre',
@@ -177,10 +175,9 @@ class Multi_Loss(nn.Module):
         prior_max_index = Variable(prior_max_index, requires_grad=False)  # (n, 19248)
 
         losses = {}
-        # Localization loss (Smooth L1)
+
         # only compute losses from positive samples
         positive_bool = conf_gt > 0  # (n, 19248)
-
         num_pos = positive_bool.sum(dim=1, keepdim=True)
 
         pos_box_p = box_p[positive_bool, :]
@@ -189,8 +186,6 @@ class Multi_Loss(nn.Module):
         losses['B'] = self.bbox_loss(pos_box_p, pos_offsets)
         losses['M'] = self.lincomb_mask_loss(positive_bool, prior_max_index, coef_p, proto_p, mask_gt, prior_max_box)
         losses['C'] = self.ohem_conf_loss(class_p, conf_gt, positive_bool)
-
-        # This loss doesn't depend on anchors
         if cfg.train_semantic:
             losses['S'] = self.semantic_segmentation_loss(predictions['segm'], mask_gt, class_gt)
 

@@ -34,6 +34,7 @@ ImageNet pre-trained weights.
 
 
 ## Train
+Note: this project may not support multi-GPU training well. Due to the lack of device resource, I can't check this at present.
 ```Shell
 # Trains using the base config with a batch size of 8 (the default).
 python train.py --config=yolact_base_config
@@ -45,7 +46,7 @@ python train.py --config=yolact_base_config --img_size=400
 python train.py --config=yolact_base_config --resume latest
 # Resume training with a specified model.
 python train.py --config=yolact_base_config --resume yolact_base_2_35000.pth
-# Set evalution interval during training.
+# Set evalution interval during training, set -1 to disable it.  
 python train.py --config=yolact_base_config --val_interval 20000
 ```
 
