@@ -8,12 +8,12 @@ from data.config import cfg
 
 
 class Multi_Loss(nn.Module):
-    def __init__(self, num_classes, pos_thre, neg_thre, negpos_ratio):
+    def __init__(self, num_classes, pos_thre, neg_thre, np_ratio):
         super().__init__()
         self.num_classes = num_classes
         self.pos_thre = pos_thre
         self.neg_thre = neg_thre
-        self.negpos_ratio = negpos_ratio
+        self.negpos_ratio = np_ratio
 
     def ohem_conf_loss(self, class_p, conf_gt, positive_bool):
         # Compute max conf across batch for hard negative mining

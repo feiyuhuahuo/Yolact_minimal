@@ -8,3 +8,6 @@ results/
 test~~.py
 *.mp4
 *.avi
+tensorboard_log/
+modules/build_yolact_dla.py
+modules/dla_original.py

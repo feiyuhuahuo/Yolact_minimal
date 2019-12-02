@@ -1,18 +1,18 @@
 #!/usr/bin/env python 
 # -*- coding:utf-8 -*-
+import torch
+import torch.backends.cudnn as cudnn
+import argparse
+import glob
+import cv2
+import time
+
 from modules.build_yolact import Yolact
 from utils.augmentations import FastBaseTransform
 from utils.functions import MovingAverage, ProgressBar
 from utils import timer
 from data.config import update_config
 from utils.output_utils import NMS, after_nms, draw_img
-import torch
-import torch.backends.cudnn as cudnn
-import argparse
-import glob
-import cv2
-import os
-import time
 
 parser = argparse.ArgumentParser(description='YOLACT COCO Evaluation')
 parser.add_argument('--trained_model', default='weights/yolact_base_54_800000.pth', type=str)
@@ -33,20 +33,8 @@ parser.add_argument('--visual_thre', default=0.3, type=float,
                     help='Detections with a score under this threshold will be removed.')
 
 args = parser.parse_args()
-
-img_path = 'results/images'
-video_path = 'results/videos'
-if not os.path.exists(img_path):
-    os.mkdir(img_path)
-if not os.path.exists(video_path):
-    os.mkdir(video_path)
-
-if 'base' in args.trained_model:
-    config = 'yolact_base_config'
-elif 'pascal' in args.trained_model:
-    config = 'yolact_resnet50_pascal_config'
-else:
-    config = 'yolact_resnet50_config'
+strs = args.trained_model.split('_')
+config = f'{strs[-3]}_{strs[-2]}_config'
 
 update_config(config)
 print(f'\nUsing \'{config}\' according to the trained_model.\n')
@@ -61,7 +49,7 @@ with torch.no_grad():
         torch.set_default_tensor_type('torch.FloatTensor')
 
     net = Yolact()
-    net.load_weights(args.trained_model)
+    net.load_weights('weights/' + args.trained_model)
     net.eval()
     print('Model loaded.\n')
 
@@ -90,14 +78,14 @@ with torch.no_grad():
 
             img_numpy = draw_img(results, img_origin, args)
 
-            cv2.imwrite(f'{img_path}/{img_name}', img_numpy)
+            cv2.imwrite(f'results/images/{img_name}', img_numpy)
             print(f'\r{i + 1}/{num}', end='')
 
         print('\nDone.')
 
     # detect videos
     elif args.video is not None:
-        vid = cv2.VideoCapture(args.video)
+        vid = cv2.VideoCapture('videos/' + args.video)
 
         target_fps = round(vid.get(cv2.CAP_PROP_FPS))
         frame_width = round(vid.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -105,7 +93,7 @@ with torch.no_grad():
         num_frames = round(vid.get(cv2.CAP_PROP_FRAME_COUNT))
 
         name = args.video.split('/')[-1]
-        video_writer = cv2.VideoWriter(f'{video_path}/{name}', cv2.VideoWriter_fourcc(*"mp4v"), target_fps,
+        video_writer = cv2.VideoWriter(f'results/videos/{name}', cv2.VideoWriter_fourcc(*"mp4v"), target_fps,
                                        (frame_width, frame_height))
 
         frame_times = MovingAverage()

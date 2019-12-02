@@ -1,4 +1,3 @@
-import os
 import json
 import numpy as np
 import torch
@@ -9,7 +8,6 @@ from pycocotools.cocoeval import COCOeval
 from terminaltables import AsciiTable
 from collections import OrderedDict
 import torch.backends.cudnn as cudnn
-from torch.autograd import Variable
 
 from data.coco import COCODetection
 from modules.build_yolact import Yolact
@@ -26,16 +24,6 @@ parser.add_argument('--visual_top_k', default=5, type=int, help='Further restric
 parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
 parser.add_argument('--max_num', default=-1, type=int, help='The maximum number of images for test, set to -1 for all.')
 parser.add_argument('--cocoapi', action='store_true', help='Whether to use cocoapi to evaluate results.')
-parser.add_argument('--benchmark', default=False, action='store_true', help='do benchmark')
-
-
-def prep_benchmark(dets_out, h, w):
-    with timer.env('After NMS'):
-        results = after_nms(dets_out, w, h)
-    with timer.env('Copy'):
-        classes, scores, boxes, masks = [x[:args.visual_top_k].cpu().numpy() for x in results]
-    with timer.env('Sync'):
-        torch.cuda.synchronize()
 
 
 class Make_json:
@@ -71,8 +59,8 @@ class Make_json:
                                'score': float(score)})
 
     def dump(self):
-        dump_arguments = [(self.bbox_data, f'{json_path}/bbox_detections.json'),
-                          (self.mask_data, f'{json_path}/mask_detections.json')]
+        dump_arguments = [(self.bbox_data, f'results/bbox_detections.json'),
+                          (self.mask_data, f'results/mask_detections.json')]
 
         for data, path in dump_arguments:
             with open(path, 'w') as f:
@@ -293,24 +281,21 @@ def calc_map(ap_data):
 
     table = [row1, row2, row3]
     table = AsciiTable(table)
-    return table.table, row3
+    return table.table, row2, row3
 
 
-def evaluate(net, dataset, max_num=-1, during_training=False, benchmark=False, cocoapi=False, traditional_nms=False):
+def evaluate(net, dataset, max_num=-1, during_training=False, cocoapi=False, traditional_nms=False):
     frame_times = MovingAverage()
     dataset_size = len(dataset) if max_num < 0 else min(max_num, len(dataset))
     dataset_indices = list(range(len(dataset)))
     dataset_indices = dataset_indices[:dataset_size]
     progress_bar = ProgressBar(40, dataset_size)
 
-    if benchmark:
-        timer.disable('Data loading')
-    else:
-        # For each class and iou, stores tuples (score, isPositive)
-        # Index ap_data[type][iouIdx][classIdx]
-        ap_data = {'box': [[APDataObject() for _ in cfg.dataset.class_names] for _ in iou_thresholds],
-                   'mask': [[APDataObject() for _ in cfg.dataset.class_names] for _ in iou_thresholds]}
-        make_json = Make_json()
+    # For each class and iou, stores tuples (score, isPositive)
+    # Index ap_data[type][iouIdx][classIdx]
+    ap_data = {'box': [[APDataObject() for _ in cfg.dataset.class_names] for _ in iou_thresholds],
+               'mask': [[APDataObject() for _ in cfg.dataset.class_names] for _ in iou_thresholds]}
+    make_json = Make_json()
 
     for i, image_idx in enumerate(dataset_indices):
         timer.reset()
@@ -318,17 +303,13 @@ def evaluate(net, dataset, max_num=-1, during_training=False, benchmark=False, c
         with timer.env('Data loading'):
             img, gt, gt_masks, h, w, num_crowd = dataset.pull_item(image_idx)
 
-            batch = Variable(img.unsqueeze(0))
+            batch = img.unsqueeze(0)
             if cuda:
                 batch = batch.cuda()
 
         with timer.env('Network forward'):
             net_outs = net(batch)
             nms_outs = NMS(net_outs, traditional_nms)
-
-        if benchmark:
-            prep_benchmark(nms_outs, h, w)
-        else:
             prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, dataset.ids[image_idx], make_json, cocoapi)
 
         # First couple of images take longer because we're constructing the graph.
@@ -343,20 +324,14 @@ def evaluate(net, dataset, max_num=-1, during_training=False, benchmark=False, c
         print('\rProcessing:  %s  %d / %d (%.2f%%)  %.2f fps  ' % (
             repr(progress_bar), i + 1, dataset_size, progress, fps), end='')
 
-    if benchmark:
-        print('\n\nStats for the last frame:')
-        timer.print_stats()
-        avg_seconds = frame_times.get_avg()
-        print('Average: %5.2f fps, %5.2f ms' % (1 / frame_times.get_avg(), 1000 * avg_seconds))
-
     else:
         if cocoapi:
             make_json.dump()
-            print(f'\nJson files dumped, saved in: {json_path}, start evaluting.')
+            print(f'\nJson files dumped, saved in: \'results/\', start evaluting.')
 
             gt_annotations = COCO(cfg.dataset.valid_info)
-            bbox_dets = gt_annotations.loadRes(f'{json_path}/bbox_detections.json')
-            mask_dets = gt_annotations.loadRes(f'{json_path}/mask_detections.json')
+            bbox_dets = gt_annotations.loadRes(f'results/bbox_detections.json')
+            mask_dets = gt_annotations.loadRes(f'results/mask_detections.json')
 
             print('\nEvaluating BBoxes:')
             bbox_eval = COCOeval(gt_annotations, bbox_dets, 'bbox')
@@ -371,9 +346,9 @@ def evaluate(net, dataset, max_num=-1, during_training=False, benchmark=False, c
             bbox_eval.summarize()
             return
 
-        table, mask_row = calc_map(ap_data)
+        table, box_row, mask_row = calc_map(ap_data)
         print(table)
-        return table, mask_row
+        return table, box_row, mask_row
 
 
 iou_thresholds = [x / 100 for x in range(50, 100, 5)]
@@ -381,16 +356,8 @@ cuda = torch.cuda.is_available()
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    json_path = 'results'
-    if not os.path.exists(json_path):
-        os.mkdir(json_path)
-
-    if 'base' in args.trained_model:
-        config = 'yolact_base_config'
-    elif 'pascal' in args.trained_model:
-        config = 'yolact_resnet50_pascal_config'
-    else:
-        config = 'yolact_resnet50_config'
+    strs = args.trained_model.split('_')
+    config = f'{strs[-3]}_{strs[-2]}_config'
 
     update_config(config)
     print(f'\nUsing \'{config}\' according to the trained_model.\n')
@@ -408,9 +375,9 @@ if __name__ == '__main__':
         net = Yolact()
         net.load_weights('weights/' + args.trained_model)
         net.eval()
-        print('Model loaded.\n')
+        print('\nModel loaded.\n')
 
         if cuda:
             net = net.cuda()
 
-        evaluate(net, dataset, args.max_num, False, args.benchmark, args.cocoapi, args.traditional_nms)
+        evaluate(net, dataset, args.max_num, False, args.cocoapi, args.traditional_nms)

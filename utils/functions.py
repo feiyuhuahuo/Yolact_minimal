@@ -26,7 +26,6 @@ class MovingAverage:
 
     def get_avg(self):
         """ Returns the average of the elements in the window. """
-        self.window.popleft()
         return sum(self.window) / max(len(self.window), 1)
 
     def __str__(self):

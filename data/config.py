@@ -1,4 +1,17 @@
+import os
+
 from modules.backbone import ResNetBackbone
+
+if not os.path.exists('results/'):
+    os.mkdir('results/')
+if not os.path.exists('results/images'):
+    os.mkdir('results/images')
+if not os.path.exists('results/videos'):
+    os.mkdir('results/videos')
+if not os.path.exists('weights/'):
+    os.mkdir('weights/')
+if not os.path.exists('tensorboard_log/'):
+    os.mkdir('tensorboard_log/')
 
 COLORS = ((244, 67, 54), (233, 30, 99), (156, 39, 176), (103, 58, 183),
           (63, 81, 181), (33, 150, 243), (3, 169, 244), (0, 188, 212),
@@ -30,6 +43,8 @@ PASCAL_CLASSES = ("aeroplane", "bicycle", "bird", "boat", "bottle",
                   "dog", "horse", "motorbike", "person", "pottedplant",
                   "sheep", "sofa", "train", "tvmonitor")
 
+CUSTOM_CLASSES = ('plane', 'cat', 'dog', 'person')  # This is just an example, modify it as you like.
+
 COCO_LABEL_MAP = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8,
                   9: 9, 10: 10, 11: 11, 13: 12, 14: 13, 15: 14, 16: 15, 17: 16,
                   18: 17, 19: 18, 20: 19, 21: 20, 22: 21, 23: 22, 24: 23, 25: 24,
@@ -43,6 +58,8 @@ COCO_LABEL_MAP = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8,
 
 PASCAL_LABEL_MAP = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10,
                     11: 11, 12: 12, 13: 13, 14: 14, 15: 15, 16: 16, 17: 17, 18: 18, 19: 19, 20: 20}
+
+CUSTOM_LABEL_MAP = {1: 1, 2: 2, 3: 3, 4: 4}  # This is just an example, modify it as you like.
 
 
 class Config(object):
@@ -79,7 +96,7 @@ class Config(object):
 
 
 # ----------------------- DATASETS ----------------------- #
-dataset_base = Config({'name': 'COCO 2017',
+coco_dataset = Config({'name': 'COCO 2017',
                        'train_images': '/home/feiyu/Data/coco2017/train2017/',
                        'train_info': '/home/feiyu/Data/coco2017/annotations/instances_train2017.json',
                        'valid_images': '/home/feiyu/Data/coco2017/val2017/',
@@ -92,6 +109,13 @@ pascal_sbd_dataset = Config({'name': 'Pascal SBD 2012',
                              'train_info': '/home/feiyu/Data/pascal_sbd/dataset/pascal_sbd_train.json',
                              'valid_info': '/home/feiyu/Data/pascal_sbd/dataset/pascal_sbd_val.json',
                              'class_names': PASCAL_CLASSES})
+
+custom_dataset = Config({'name': 'Custom dataset',
+                         'train_images': '/home/feiyu/Data/custom/',  # No need to add 'JPEGImages/'.
+                         'train_info': '/home/feiyu/Data/custom/annotations.json',
+                         'valid_images': 'decide by yourself',
+                         'valid_info': 'decide by yourself',
+                         'class_names': CUSTOM_CLASSES})
 
 # ----------------------- TRANSFORMS ----------------------- #
 resnet_transform = Config({'channel_order': 'RGB',
@@ -111,10 +135,10 @@ resnet50_backbone = resnet101_backbone.copy({'name': 'ResNet50',
                                              'path': 'resnet50-19c8e357.pth',
                                              'args': ([3, 4, 6, 3],)})
 
-yolact_base_config = Config({
-    'name': 'yolact_base',
-    'dataset': dataset_base,
-    'num_classes': len(dataset_base.class_names) + 1,
+res101_coco_config = Config({
+    'name': 'res101_coco',
+    'dataset': coco_dataset,
+    'num_classes': len(coco_dataset.class_names) + 1,
     'batch_size': 8,
     'img_size': 550,  # image size
     'max_iter': 800000,
@@ -123,8 +147,8 @@ yolact_base_config = Config({
     # Then, for priors whose maximum IoU is over the positive threshold, marked as positive.
     # For priors whose maximum IoU is less than the negative threshold, marked as negative.
     # The rest are neutral ones and are not used to calculate the loss.
-    'positive_iou_threshold': 0.5,
-    'negative_iou_threshold': 0.4,
+    'pos_iou_thre': 0.5,
+    'neg_iou_thre': 0.4,
     # If less than 1, anchors treated as a negative that have a crowd iou over this threshold with
     # the crowd boxes will be treated as a neutral.
     'crowd_iou_threshold': 0.7,
@@ -163,11 +187,11 @@ mask_proto_net = [(256, 3, {'padding': 1}), (256, 3, {'padding': 1}), (256, 3, {
 
 extra_head_net = [(256, 3, {'padding': 1})]
 
-yolact_resnet50_config = yolact_base_config.copy({'name': 'yolact_resnet50',
-                                                  'backbone': resnet50_backbone})
+res50_coco_config = res101_coco_config.copy({'name': 'res50_coco',
+                                             'backbone': resnet50_backbone})
 
-yolact_resnet50_pascal_config = yolact_resnet50_config.copy({
-    'name': 'yolact_resnet50_pascal',
+res50_pascal_config = res50_coco_config.copy({
+    'name': 'res50_pascal',
     'dataset': pascal_sbd_dataset,
     'num_classes': len(pascal_sbd_dataset.class_names) + 1,
     'max_iter': 120000,
@@ -175,6 +199,12 @@ yolact_resnet50_pascal_config = yolact_resnet50_config.copy({
     'scales': [32, 64, 128, 256, 512],
     'label_map': PASCAL_LABEL_MAP,
     'use_square_anchors': False})
+
+res101_custom_config = res101_coco_config.copy({
+    'name': 'res101_custom',
+    'dataset': custom_dataset,
+    'num_classes': len(custom_dataset.class_names) + 1,
+    'label_map': CUSTOM_LABEL_MAP})
 
 
 def update_config(config, batch_size=None, img_size=None):
@@ -189,4 +219,4 @@ def update_config(config, batch_size=None, img_size=None):
         setattr(cfg, 'scales', scales)
 
 
-cfg = yolact_base_config.copy()
+cfg = res101_coco_config.copy()

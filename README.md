@@ -11,72 +11,76 @@ Following instruction is based on resnet-101.
 ## Environments  
 PyTorch >= 1.1.  
 Python >= 3.6.  
+tensorboardX  
 Other common packages.  
 
 ## Prepare
-- Download COCO 2017 datasets, modify the paths of training and evalution datasets in `data/config.py`.
-- If some directories are missed, just create them by yourself.   
+- Download COCO 2017 datasets, modify the paths of training and evalution datasets in `data/config.py`. 
 - Download weights.
 
 Yolact trained weights.  
 
 |Backbone   | box mAP  | mask mAP  | Google Drive                                                                                                         |Baidu Cloud          |
 |:---------:|:--------:|:---------:|:--------------------------------------------------------------------------------------------------------------------:|:----------------------------------------------------------------:|
-|Resnet50   | 30.25    | 28.04     | [yolact_resnet50_54_800000.pth](https://drive.google.com/file/d/1yp7ZbbDwvMiFJEq4ptVKTYTI2VeRDXl0/view?usp=sharing)  |[password: mksf](https://pan.baidu.com/s/1XDeDwg1Xw9GJCucJNqdNZw) |
-|Resnet101  | 32.54    | 29.83     | [yolact_base_54_800000.pth](https://drive.google.com/file/d/1UYy3dMapbH1BnmtZU4WH1zbYgOzzHHf_/view?usp=sharing)      |[password: oubr](https://pan.baidu.com/s/1uX_v1RPISxgwQ2LdsbJrJQ) |
+|Resnet50   | 30.25    | 28.04     | [res50_coco_800000.pth](https://drive.google.com/file/d/1kMm0tBZh8NuXBLmXKzVhOKR98Hpd81ja/view?usp=sharing)  |[password: mksf](https://pan.baidu.com/s/1XDeDwg1Xw9GJCucJNqdNZw) |
+|Resnet101  | 32.54    | 29.83     | [res101_coco_800000.pth](https://drive.google.com/file/d/1KyjhkLEw0D8zP8IiJTTOR0j6PGecKbqS/view?usp=sharing)      |[password: oubr](https://pan.baidu.com/s/1uX_v1RPISxgwQ2LdsbJrJQ) |
 
 ImageNet pre-trained weights.  
 
 | Backbone  | Google Drive                                                                                                    |Baidu Cloud                                                        |
 |:---------:|:---------------------------------------------------------------------------------------------------------------:|:-----------------------------------------------------------------:|
-| Resnet50  | [resnet50-19c8e357.pth](https://drive.google.com/file/d/1Jy3yCdbatgXa5YYIdTCRrSV0S9V5g1rn/view?usp=sharing)     | [password: a6ee](https://pan.baidu.com/s/1aFLE-e1KdH_FxRlisWzTHw) |
-| Resnet101 | [resnet101_reducedfc.pth](https://drive.google.com/file/d/1tvqFPd4bJtakOlmn-uIA492g2qurRChj/view?usp=sharing)   | [password: kdht](https://pan.baidu.com/s/1ha4aH7xVg-0J0Ukcqcr6OQ) |
+| Resnet50  | [resnet50-19c8e357.pth](https://drive.google.com/file/d/1Uwz7BYHEmPuMCRQDW2wD00Jbeb-jxWng/view?usp=sharing)     | [password: a6ee](https://pan.baidu.com/s/1aFLE-e1KdH_FxRlisWzTHw) |
+| Resnet101 | [resnet101_reducedfc.pth](https://drive.google.com/file/d/1vaDqYNB__jTB7_p9G6QTMvoMDlGkHzhP/view?usp=sharing)   | [password: kdht](https://pan.baidu.com/s/1ha4aH7xVg-0J0Ukcqcr6OQ) |
 
 
 ## Train
 Note: this project may not support multi-GPU training well. Due to the lack of device resource, I can't check this at present.
 ```Shell
-# Trains using the base config with a batch size of 8 (the default).
-python train.py --config=yolact_base_config
-# Training with different batch_size (remember to set freeze_bn=True in `config.py` when the batch_size is smaller than 4).
-python train.py --config=yolact_base_config --batch_size=4
-# Training with different image size (anchor settings related to image size will be adjusted automatically).
-python train.py --config=yolact_base_config --img_size=400
+# Train with resnet101 backbone on coco2017 with a batch size of 8 (default).
+python train.py --config=res101_coco_config
+# Train with resnet50 backbone on coco2017 with a batch size of 8.
+python train.py --config=res50_coco_config
+# Train with different batch_size (remember to set freeze_bn=True in `config.py` when the batch_size is smaller than 4).
+python train.py --config=res101_coco_config --batch_size=4
+# Train with different image size (anchor settings related to image size will be adjusted automatically).
+python train.py --config=res101_coco_config --img_size=400
 # Resume training with the latest trained model.
-python train.py --config=yolact_base_config --resume latest
+python train.py --config=res101_coco_config --resume latest
 # Resume training with a specified model.
-python train.py --config=yolact_base_config --resume yolact_base_2_35000.pth
+python train.py --config=res101_coco_config --resume latest_res101_coco_35000.pth
 # Set evalution interval during training, set -1 to disable it.  
-python train.py --config=yolact_base_config --val_interval 20000
+python train.py --config=res101_coco_config --val_interval 20000
+```
+## Use tensorboard
+```Shell
+tensorboard --logdir=tensorboard_log
 ```
 
 ## Evalution
 ```Shell
 # Evaluate on COCO val2017 (configs will be parsed according to the model name).
-python eval.py --trained_model=yolact_base_54_800000.pth
+python eval.py --trained_model=res101_coco_800000.pth
 ```
 The results should be:
 ![Example 1](data/mAP.png)
 
 ```Shell
 # Evaluate with a specified number of images.
-python eval.py --trained_model=yolact_base_54_800000.pth --max_num=1000
+python eval.py --trained_model=res101_coco_800000.pth --max_num=1000
 # Create a json file and then use the COCO API to evaluate the COCO detection result.
-python eval.py --trained_model=yolact_base_54_800000.pth --cocoapi
-# Benchmark
-python eval.py --trained_model=yolact_base_54_800000.pth --benchmark --max_num=1000
+python eval.py --trained_model=res101_coco_800000.pth --cocoapi
 ```
 ## Detect
 ![Example 2](data/2.jpg)
 ```Shell
-# Detect images, pass the path of your image directory to --image.
-python detect.py --trained_model=yolact_base_54_800000.pth --image images
-# Detect a video, pass the path of your video to --video.
-python detect.py --trained_model=yolact_base_54_800000.pth --video video/1.mp4
+# To detect images, put your images to the 'images' folder, then:
+python detect.py --trained_model=res101_coco_800000.pth --image images
+# To detect videos, put your videos to the 'videos' folder, then:
+python detect.py --trained_model=res101_coco_800000.pth --video 1.mp4
 # Use --real_time to detect real-timely.
-python detect.py --trained_model=yolact_base_54_800000.pth --video video/1.mp4 --real_time
+python detect.py --trained_model=res101_coco_800000.pth --video 1.mp4 --real_time
 # Use --hide_mask, --hide_score, --show_lincomb and so on to get different results.
-python detect.py --trained_model=yolact_base_54_800000.pth --image images --hide_mask
+python detect.py --trained_model=res101_coco_800000.pth --image images --hide_mask
 ```
 
 ## Train on PASCAL_SBD datasets
@@ -86,11 +90,33 @@ python detect.py --trained_model=yolact_base_54_800000.pth --image images --hide
 python utils/pascal2coco.py
 ```
 - Download the Yolact trained weights.
-[Google dirve](https://drive.google.com/open?id=1ExrRSPVctHW8Nxrn0SofU1lVhK5Wn0_S),   [Baidu Cloud: eg7b](https://pan.baidu.com/s/1KM5yV4IxHiAX4Iwn5G_TuA)
+[Google dirve](https://drive.google.com/file/d/1QHO_FEbsFJvN9_L4WZqCpKFtUre6iMVb/view?usp=sharing),   [Baidu Cloud: eg7b](https://pan.baidu.com/s/1KM5yV4IxHiAX4Iwn5G_TuA)
 
 ```Shell
 # Training.
-python train.py --config=yolact_resnet50_pascal_config
+python train.py --config=res50_pascal_config
 # Evalution.
-python eval.py --trained_model=yolact_resnet50_pascal_112_120000.pth
+python eval.py --trained_model=res50_pascal_120000.pth
+```
+
+## Train custom datasets
+- Install labelme  
+```Shell
+pip install labelme
+```
+- Use labelme to label your images, only ploygons are needed. Note that different objects belong to one class need to be distinguished by '-1', '-2', ... The created json files are in the same folder with the images, leave them alone.  
+![Example 3](data/labelme2.png)
+- Prepare a 'labels.txt' like this, note that row1 and row2 are also required.  
+![Example 4](data/labels.png)
+- Prepare coco-style json.
+```Shell
+python utils/labelme2coco.py your-image-and-labelme-json-path your-expected-output-folder --labels the-path-of-labels.txt
+```
+- Edit `CUSTOM_CLASSES` and `CUSTOM_LABEL_MAP` in `data/config.py`.  
+![Example 5](data/label_name.png)  
+![Example 6](data/label_map.png)
+- Edit `custom_dataset` in `data/config.py`, modify the path as your output folder. If you need to validate, prepare the validation dataset by the same way.  
+- Then train.  
+```Shell
+python train.py --config=res101_custom_config
 ```

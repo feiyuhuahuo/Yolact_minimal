@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.backends.cudnn as cudnn
 import torch.utils.data as data
+from tensorboardX import SummaryWriter
 import argparse
 import datetime
 import os
@@ -25,7 +26,7 @@ parser.add_argument('--batch_size', default=8, type=int)
 parser.add_argument('--img_size', default=550, type=int, help='The image size for training.')
 parser.add_argument('--resume', default=None, type=str, help='The path of the weight file to resume training with.')
 parser.add_argument('--val_interval', default=10000, type=int,
-                    help='Evalute and save the model every [val_interval] iterations, pass -1 to disable.')
+                    help='Evaluate and save the model every [val_interval] iterations, pass -1 to disable.')
 
 
 def set_lr(optimizer, new_lr):
@@ -55,9 +56,9 @@ def compute_val_map(yolact_net):
                                     augmentation=BaseTransform())
         yolact_net.eval()
         print("\nComputing validation mAP...", flush=True)
-        table, mask_row = evaluate(yolact_net, val_dataset, during_training=True)
+        table, box_row, mask_row = evaluate(yolact_net, val_dataset, during_training=True)
         yolact_net.train()
-        return table, mask_row[1]
+        return table, box_row[1], mask_row[1]
 
 
 def print_result(map_tables):
@@ -73,15 +74,15 @@ def save_best(net):
     if mask_map >= best_mask_map:
         if weight:
             os.remove(weight[0])  # remove the last best model
-        print(f'\nSaving the current best model as \'best_{mask_map}_{cfg.name}_{epoch}_{iter}.pth\'.\n')
-        torch.save(net.state_dict(), f'weights/best_{mask_map}_{cfg.name}_{epoch}_{iter}.pth')
+        print(f'\nSaving the current best model as \'best_{mask_map}_{cfg.name}_{step}.pth\'.\n')
+        torch.save(net.state_dict(), f'weights/best_{mask_map}_{cfg.name}_{step}.pth')
 
 
 def save_latest(net):
     weight = glob.glob('weights/latest*')
     if weight:
         os.remove(weight[0])
-    torch.save(net.state_dict(), f'weights/latest_{cfg.name}_{epoch}_{iter}.pth')
+    torch.save(net.state_dict(), f'weights/latest_{cfg.name}_{step}.pth')
 
 
 args = parser.parse_args()
@@ -105,63 +106,47 @@ net.train()
 if args.resume == 'latest':
     weight = glob.glob('weights/latest*')[0]
     net.load_weights(weight)
-    resume_iter = int(weight.split('.pth')[0].split('_')[-1])
+    resume_step = int(weight.split('.pth')[0].split('_')[-1])
     print(f'\nResume training with \'{weight}\'.\n')
 elif args.resume and 'yolact' in args.resume:
     net.load_weights('weights/' + args.resume)
-    resume_iter = int(args.resume.split('.pth')[0].split('_')[-1])
+    resume_step = int(args.resume.split('.pth')[0].split('_')[-1])
     print(f'\nResume training with \'{args.resume}\'.\n')
 else:
     net.init_weights(backbone_path='weights/' + cfg.backbone.path)
     print('\nTraining from begining, weights initialized.\n')
 
 optimizer = optim.SGD(net.parameters(), lr=cfg.lr, momentum=cfg.momentum, weight_decay=cfg.decay)
-criterion = Multi_Loss(num_classes=cfg.num_classes,
-                       pos_thre=cfg.positive_iou_threshold,
-                       neg_thre=cfg.negative_iou_threshold,
-                       negpos_ratio=3)
+criterion = Multi_Loss(num_classes=cfg.num_classes, pos_thre=cfg.pos_iou_thre, neg_thre=cfg.neg_iou_thre, np_ratio=3)
 
 if cuda:
     cudnn.benchmark = True
     net = nn.DataParallel(net).cuda()
     criterion = nn.DataParallel(criterion).cuda()
 
-dataset = COCODetection(image_path=cfg.dataset.train_images,
-                        info_file=cfg.dataset.train_info,
+dataset = COCODetection(image_path=cfg.dataset.train_images, info_file=cfg.dataset.train_info,
                         augmentation=SSDAugmentation())
-
-epoch_size = len(dataset) // cfg.batch_size
-step_index = 0
-
-iter = resume_iter if args.resume else 0
-start_epoch = iter // epoch_size
-end_epoch = cfg.max_iter // epoch_size + 1
-remain = epoch_size - (iter % epoch_size)
 
 data_loader = data.DataLoader(dataset, cfg.batch_size, num_workers=8, shuffle=True,
                               collate_fn=detection_collate, pin_memory=True)
 
+step_index = 0
+start_step = resume_step if args.resume else 0
 batch_time = MovingAverage()
 loss_types = ['B', 'C', 'M', 'S']
 loss_avgs = {k: MovingAverage() for k in loss_types}
 map_tables = []
-
-print('Begin training!\n')
-# Use try-except to use ctrl+c to stop and save early.
-try:
-    for epoch in range(start_epoch, end_epoch):
+training = True
+step = start_step
+writer = SummaryWriter('tensorboard_log')
+try:  # Use try-except to use ctrl+c to stop and save early.
+    while training:
         for i, datum in enumerate(data_loader):
-            if args.resume and epoch == start_epoch and i >= remain:
-                break
+            if cfg.warmup_until > 0 and step <= cfg.warmup_until:  # Warm up learning rate.
+                set_lr(optimizer, (cfg.lr - cfg.warmup_init) * (step / cfg.warmup_until) + cfg.warmup_init)
 
-            iter += 1
-
-            # Warm up learning rate
-            if cfg.warmup_until > 0 and iter <= cfg.warmup_until:
-                set_lr(optimizer, (cfg.lr - cfg.warmup_init) * (iter / cfg.warmup_until) + cfg.warmup_init)
-
-            # Adjust the learning rate at the given iterations, but also if we resume from past that iteration
-            while step_index < len(cfg.lr_steps) and iter >= cfg.lr_steps[step_index]:
+            # Adjust the learning rate according to the current step.
+            while step_index < len(cfg.lr_steps) and step >= cfg.lr_steps[step_index]:
                 step_index += 1
                 set_lr(optimizer, cfg.lr * (0.1 ** step_index))
 
@@ -176,52 +161,65 @@ try:
             forward_end = time.time()
 
             losses = criterion(predictions, box_classes, masks_gt, num_crowds)
-            losses = {k: v.mean() for k, v in losses.items()}  # Mean here because Dataparallel
+            losses = {k: v.mean() for k, v in losses.items()}  # Mean here because Dataparallel.
             loss = sum([losses[k] for k in losses])
 
             optimizer.zero_grad()
-            loss.backward()  # Do this to free up vram even if loss is not finite
+            loss.backward()  # Do this to free up vram even if loss is not finite.
 
             if torch.isfinite(loss).item():
                 optimizer.step()
 
             for k in losses:
-                loss_avgs[k].add(losses[k].item())  # Add the loss to the moving average for bookkeeping
+                loss_avgs[k].add(losses[k].item())  # Add the loss to the moving average for bookkeeping.
 
             grad_end = time.time()
-            if i == 0 and epoch == start_epoch:
-                temp = forward_start
-            iter_time = grad_end - temp
-            batch_time.add(iter_time)
+
+            if step > start_step:
+                iter_time = grad_end - temp
+                batch_time.add(iter_time)
             temp = grad_end
 
-            if iter % 10 == 0:
+            if step % 10 == 0 and step != start_step:
                 cur_lr = optimizer.param_groups[0]['lr']
-                seconds = (cfg.max_iter - iter) * batch_time.get_avg()
+                seconds = (cfg.max_iter - step) * batch_time.get_avg()
                 eta_str = str(datetime.timedelta(seconds=seconds)).split('.')[0]
                 total = sum([loss_avgs[k].get_avg() for k in losses])
                 loss_labels = sum([[k, loss_avgs[k].get_avg()] for k in loss_types if k in losses], [])
 
+                for k, v in losses.items():
+                    writer.add_scalar(k, v, global_step=step)
+                writer.add_scalar('total', loss, global_step=step)
+
                 t_forward = forward_end - forward_start
                 t_data = iter_time - (grad_end - forward_start)
                 time_str = ' T: %.3f | lr: %.2e | t_data: %.3f | t_forward: %.3f | t_total: %.3f | ETA: %s'
-                print(('[%3d] %7d |' + (' %s: %.3f |' * len(losses)) + time_str) % tuple(
-                    [epoch, iter] + loss_labels + [total, cur_lr, t_data, t_forward, iter_time, eta_str]), flush=True)
+                print(('%d |' + (' %s: %.3f |' * len(losses)) + time_str) % tuple(
+                    [step] + loss_labels + [total, cur_lr, t_data, t_forward, iter_time, eta_str]), flush=True)
 
-            if args.val_interval > 0 and iter % args.val_interval == 0:
+            if args.val_interval > 0 and step % args.val_interval == 0 and step != start_step:
                 info = (('iteration: %7d |' + (' %s: %.3f |' * len(losses)) + ' T: %.3f | lr: %.2e')
-                        % tuple([iter] + loss_labels + [total, cur_lr]))
-                table, mask_map = compute_val_map(net.module)
+                        % tuple([step] + loss_labels + [total, cur_lr]))
+                table, box_map, mask_map = compute_val_map(net.module)
+
+                writer.add_scalar('box_map', box_map, global_step=step)
+                writer.add_scalar('mask_map', mask_map, global_step=step)
+
                 map_tables.append((info, table))
-                save_latest(net)
-                save_best(net)
+                save_latest(net.module)
+                save_best(net.module)
+
+            step += 1
+            if step > cfg.max_iter:
+                training = False
+                break
 
 except KeyboardInterrupt:
-    print(f'\nStopped, saving the latest model as \'latest_{cfg.name}_{epoch}_{iter}.pth\'.\n')
-    save_latest(net)
+    print(f'\nStopped, saving the latest model as \'latest_{cfg.name}_{step}.pth\'.\n')
+    save_latest(net.module)
     print_result(map_tables)
     exit()
 
-print(f'Training completed, saving the final model as \'latest_{cfg.name}_{epoch}_{iter}.pth\'.\n')
-save_latest(net)
+print(f'Training completed, saving the final model as \'latest_{cfg.name}_{step}.pth\'.\n')
+save_latest(net.module)
 print_result(map_tables)

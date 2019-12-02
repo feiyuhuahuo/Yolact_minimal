@@ -30,21 +30,6 @@ class COCODetection(data.Dataset):
         self.augmentation = augmentation
         self.label_map = cfg.label_map
 
-    def get_box_list(self, target, width, height):
-        scale = np.array([width, height, width, height])
-        box_list = []
-        for obj in target:
-            if 'bbox' in obj:
-                bbox = obj['bbox']
-                label_idx = self.label_map[obj['category_id']] - 1
-                final_box = list(np.array([bbox[0], bbox[1], bbox[0] + bbox[2], bbox[1] + bbox[3]]) / scale)
-                final_box.append(label_idx)
-                box_list += [final_box]  # (xmin, ymin, xmax, ymax, label_idx), between 0~1
-            else:
-                print("No bbox found for object ", obj)
-
-        return box_list
-
     def __getitem__(self, index):
         im, gt, masks, h, w, num_crowds = self.pull_item(index)
         return im, gt, masks, num_crowds
@@ -53,22 +38,14 @@ class COCODetection(data.Dataset):
         return len(self.ids)
 
     def pull_item(self, index):
-        """
-        Args:
-            index (int): Index
-        Returns:
-            tuple: Tuple (image, target, masks, height, width, crowd).
-                   target is the object returned by ``coco.loadAnns``.
-            Note that if no crowd annotations exist, crowd will be None
-        """
         img_ids = self.ids[index]
         ann_ids = self.coco.getAnnIds(imgIds=img_ids)
 
         # 'target' includes {'segmentation', 'area', iscrowd', 'image_id', 'bbox', 'category_id'}
         target = self.coco.loadAnns(ann_ids)
 
-        # Separate out crowd annotations. These are annotations that signify a large crowd of objects,
-        # where there is no annotation for each individual object. When testing and training, treat these crowds as neutral.
+        # Separate out crowd annotations. These are annotations that signify a large crowd of objects, where there is
+        # no annotation for each individual object. When testing and training, treat these crowds as neutral.
         crowd = [x for x in target if ('iscrowd' in x and x['iscrowd'])]
         target = [x for x in target if not ('iscrowd' in x and x['iscrowd'])]
         num_crowds = len(crowd)
@@ -86,11 +63,22 @@ class COCODetection(data.Dataset):
         if len(target) > 0:
             masks = [self.coco.annToMask(aa).reshape(-1) for aa in target]
             masks = np.vstack(masks)
-            masks = masks.reshape(-1, height, width)  # between 0~1, (num_objs, height, width)
-            # Visualize the masks
+            masks = masks.reshape((-1, height, width))  # between 0~1, (num_objs, height, width)
+            # Uncomment this to visualize the masks.
             # cv2.imshow('aa', masks[0]*255)
             # cv2.waitKey()
-            box_list = self.get_box_list(target, width, height)
+
+            scale = np.array([width, height, width, height])
+            box_list = []
+            for obj in target:
+                if 'bbox' in obj:
+                    bbox = obj['bbox']
+                    label_idx = self.label_map[obj['category_id']] - 1
+                    final_box = list(np.array([bbox[0], bbox[1], bbox[0] + bbox[2], bbox[1] + bbox[3]]) / scale)
+                    final_box.append(label_idx)
+                    box_list += [final_box]  # (xmin, ymin, xmax, ymax, label_idx), between 0~1
+                else:
+                    print("No bbox found for object ", obj)
 
         if self.augmentation is not None:
             if len(box_list) > 0:
@@ -98,7 +86,7 @@ class COCODetection(data.Dataset):
                 img, masks, boxes, labels = self.augmentation(img, masks, box_array[:, :4],
                                                               {'num_crowds': num_crowds, 'labels': box_array[:, 4]})
 
-                # I stored num_crowds in labels so I didn't have to modify the entirety of augmentations
+                # I stored num_crowds in labels so I didn't have to modify the entirety of augmentations.
                 num_crowds = labels['num_crowds']
                 labels = labels['labels']
                 boxes = np.hstack((boxes, np.expand_dims(labels, axis=1)))
