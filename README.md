@@ -41,6 +41,7 @@ python train.py --config=res101_coco_config
 # Train with resnet50 backbone on coco2017 with a batch size of 8.
 python train.py --config=res50_coco_config
 # Train with different batch_size (remember to set freeze_bn=True in `config.py` when the batch_size is smaller than 4).
+# You might also tune the learning rate and learning rate decay by yourself.
 python train.py --config=res101_coco_config --batch_size=4
 # Train with different image size (anchor settings related to image size will be adjusted automatically).
 python train.py --config=res101_coco_config --img_size=400
@@ -116,7 +117,7 @@ python utils/labelme2coco.py your-image-and-labelme-json-path your-expected-outp
 ![Example 5](data/label_name.png)  
 ![Example 6](data/label_map.png)
 - Edit `custom_dataset` in `data/config.py`, modify the path as your output folder. If you need to validate, prepare the validation dataset by the same way.  
-- Then train.  
+- Then train, since that the custom dataset is different from coco2017, you might tune the learning rate and learning rate decay by yourself.  
 ```Shell
 python train.py --config=res101_custom_config
 ```
