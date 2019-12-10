@@ -250,7 +250,6 @@ def draw_lincomb(proto_data, masks, img_name):
 
 
 def draw_img(results, img, args, class_color=False, fps=None):
-    color_cache = defaultdict(lambda: {})
     img_gpu = img / 255.0
 
     # Masks are drawn on the GPU, so don't copy
@@ -267,22 +266,19 @@ def draw_img(results, img, args, class_color=False, fps=None):
         # No detections found so just output the original image
         return (img_gpu * 255).byte().cpu().numpy()
 
-    # Quick and dirty lambda for selecting the color for a particular index
     # Also keeps track of a per-gpu color cache for maximum speed
-    def get_color(j, on_gpu=None):
+    def get_color(j, device=None):
         color_idx = (class_ids[j] * 5 if class_color else j * 5) % len(COLORS)
+        color = COLORS[color_idx]
+        # The image might come in as RGB or BRG, depending
+        color = (color[2], color[1], color[0])
 
-        if on_gpu is not None and color_idx in color_cache[on_gpu]:
-            return color_cache[on_gpu][color_idx]
-        else:
-            color = COLORS[color_idx]
-            # The image might come in as RGB or BRG, depending
-            color = (color[2], color[1], color[0])
+        if 'cuda' in str(device):
+            color = torch.Tensor(color).to(device.index).float() / 255.
+        elif 'cpu' in str(device):
+            color = torch.Tensor(color).float() / 255.
 
-            if on_gpu is not None:
-                color = torch.Tensor(color).to(on_gpu).float() / 255.
-                color_cache[on_gpu][color_idx] = color
-            return color
+        return color
 
     # First, draw the masks on the GPU where we can do it really fast
     # Beware: very fast but possibly unintelligible mask-drawing code ahead
@@ -292,7 +288,7 @@ def draw_img(results, img, args, class_color=False, fps=None):
 
         # Prepare the RGB images for each mask given their color (size [num_dets, h, w, 1])
         colors = torch.cat(
-            [get_color(j, on_gpu=img_gpu.device.index).view(1, 1, 1, 3) for j in range(num_considered)], dim=0)
+            [get_color(j, device=img_gpu.device).view(1, 1, 1, 3) for j in range(num_considered)], dim=0)
         masks_color = masks.repeat(1, 1, 1, 3) * colors * 0.45
 
         # This is 1 everywhere except for 1-0.45 where the mask is

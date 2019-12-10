@@ -194,8 +194,11 @@ class Yolact(nn.Module):
         if cfg.train_semantic:  # True
             self.semantic_seg_conv = nn.Conv2d(256, cfg.num_classes - 1, kernel_size=1)
 
-    def load_weights(self, path):
-        state_dict = torch.load(path)
+    def load_weights(self, path, cuda):
+        if cuda:
+            state_dict = torch.load(path)
+        else:
+            state_dict = torch.load(path, map_location='cpu')
 
         for key in list(state_dict.keys()):
             # 'fpn.downsample_layers.2.weight' and 'fpn.downsample_layers.2.bias'
@@ -249,7 +252,7 @@ class Yolact(nn.Module):
         if isinstance(self.anchors, list):
             for i, shape in enumerate([list(aa.shape) for aa in outs]):
                 self.anchors += make_anchors(shape[2], shape[3], cfg.scales[i])
-            self.anchors = torch.Tensor(self.anchors).view(-1, 4).cuda()
+            self.anchors = torch.Tensor(self.anchors).view(-1, 4)
 
         with timer.env('proto'):
             # outs[0]: [2, 256, 69, 69], the feature map from P3

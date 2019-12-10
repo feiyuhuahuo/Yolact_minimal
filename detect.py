@@ -49,7 +49,7 @@ with torch.no_grad():
         torch.set_default_tensor_type('torch.FloatTensor')
 
     net = Yolact()
-    net.load_weights('weights/' + args.trained_model)
+    net.load_weights('weights/' + args.trained_model, cuda)
     net.eval()
     print('Model loaded.\n')
 
@@ -63,7 +63,9 @@ with torch.no_grad():
 
         for i, one_img in enumerate(images):
             img_name = one_img.split('/')[-1]
-            img_origin = torch.from_numpy(cv2.imread(one_img)).cuda().float()
+            img_origin = torch.from_numpy(cv2.imread(one_img)).float()
+            if cuda:
+                img_origin = img_origin.cuda()
             img_h, img_w = img_origin.shape[0], img_origin.shape[1]
             img_trans = FastBaseTransform()(img_origin.unsqueeze(0))
             net_outs = net(img_trans)
@@ -73,8 +75,8 @@ with torch.no_grad():
             with timer.env('after nms'):
                 results = after_nms(nms_outs, img_h, img_w, show_lincomb=show_lincomb, crop_masks=not args.no_crop,
                                     visual_thre=args.visual_thre, img_name=img_name)
-
-                torch.cuda.synchronize()
+                if cuda:
+                    torch.cuda.synchronize()
 
             img_numpy = draw_img(results, img_origin, args)
 
@@ -102,16 +104,20 @@ with torch.no_grad():
         time_here = 0
         fps = 0
         for i in range(num_frames):
-            frame_origin = torch.from_numpy(vid.read()[1]).cuda().float()
+            frame_origin = torch.from_numpy(vid.read()[1]).float()
+            if cuda:
+                frame_origin = frame_origin.cuda()
             img_h, img_w = frame_origin.shape[0], frame_origin.shape[1]
             frame_trans = FastBaseTransform()(frame_origin.unsqueeze(0))
             net_outs = net(frame_trans)
             nms_outs = NMS(net_outs, args.traditional_nms)
             results = after_nms(nms_outs, img_h, img_w, crop_masks=not args.no_crop, visual_thre=args.visual_thre)
 
-            torch.cuda.synchronize()
+            if cuda:
+                torch.cuda.synchronize()
             temp = time_here
             time_here = time.time()
+
             if i > 0:
                 frame_times.add(time_here - temp)
                 fps = 1 / frame_times.get_avg()

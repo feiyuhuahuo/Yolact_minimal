@@ -105,11 +105,11 @@ net.train()
 
 if args.resume == 'latest':
     weight = glob.glob('weights/latest*')[0]
-    net.load_weights(weight)
+    net.load_weights(weight, cuda)
     resume_step = int(weight.split('.pth')[0].split('_')[-1])
     print(f'\nResume training with \'{weight}\'.\n')
 elif args.resume and 'yolact' in args.resume:
-    net.load_weights('weights/' + args.resume)
+    net.load_weights('weights/' + args.resume, cuda)
     resume_step = int(args.resume.split('.pth')[0].split('_')[-1])
     print(f'\nResume training with \'{args.resume}\'.\n')
 else:
@@ -152,12 +152,14 @@ try:  # Use try-except to use ctrl+c to stop and save early.
 
             images, box_classes, masks_gt, num_crowds = data_to_device(datum)
 
-            torch.cuda.synchronize()
+            if cuda:
+                torch.cuda.synchronize()
             forward_start = time.time()
 
             predictions = net(images)
 
-            torch.cuda.synchronize()
+            if cuda:
+                torch.cuda.synchronize()
             forward_end = time.time()
 
             losses = criterion(predictions, box_classes, masks_gt, num_crowds)
@@ -188,7 +190,7 @@ try:  # Use try-except to use ctrl+c to stop and save early.
                 loss_labels = sum([[k, loss_avgs[k].get_avg()] for k in loss_types if k in losses], [])
 
                 for k, v in losses.items():
-                    writer.add_scalar(k, v, global_step=step)
+                    writer.add_scalar(f'task/{k}', v, global_step=step)
                 writer.add_scalar('total', loss, global_step=step)
 
                 t_forward = forward_end - forward_start
@@ -206,8 +208,8 @@ try:  # Use try-except to use ctrl+c to stop and save early.
                 writer.add_scalar('mask_map', mask_map, global_step=step)
 
                 map_tables.append((info, table))
-                save_latest(net.module)
-                save_best(net.module)
+                save_latest(net.module if cuda else net)
+                save_best(net.module if cuda else net)
 
             step += 1
             if step > cfg.max_iter:
@@ -216,10 +218,10 @@ try:  # Use try-except to use ctrl+c to stop and save early.
 
 except KeyboardInterrupt:
     print(f'\nStopped, saving the latest model as \'latest_{cfg.name}_{step}.pth\'.\n')
-    save_latest(net.module)
+    save_latest(net.module if cuda else net)
     print_result(map_tables)
     exit()
 
 print(f'Training completed, saving the final model as \'latest_{cfg.name}_{step}.pth\'.\n')
-save_latest(net.module)
+save_latest(net.module if cuda else net)
 print_result(map_tables)

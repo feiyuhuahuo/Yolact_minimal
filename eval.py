@@ -148,8 +148,8 @@ def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, mak
 
         class_ids = list(class_ids.cpu().numpy().astype(int))
         classes = list(classes.cpu().numpy().astype(float))
-        masks = masks.view(-1, h * w).cuda()
-        boxes = boxes.cuda()
+        masks = masks.view(-1, h * w).cuda() if cuda else masks.view(-1, h * w)
+        boxes = boxes.cuda() if cuda else boxes
 
     if cocoapi:
         with timer.env('Output json'):
@@ -373,7 +373,7 @@ if __name__ == '__main__':
         dataset = COCODetection(cfg.dataset.valid_images, cfg.dataset.valid_info, augmentation=BaseTransform())
 
         net = Yolact()
-        net.load_weights('weights/' + args.trained_model)
+        net.load_weights('weights/' + args.trained_model, cuda)
         net.eval()
         print('\nModel loaded.\n')
 

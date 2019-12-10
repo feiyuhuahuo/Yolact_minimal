@@ -179,8 +179,7 @@ res101_coco_config = Config({
     'max_detections': 100,
     # Freeze the backbone bn layer during training, other additional bn layers after the backbone will not be frozen.
     'freeze_bn': False,
-    'label_map': COCO_LABEL_MAP,
-    'dla_backbone': False})
+    'label_map': COCO_LABEL_MAP})
 
 mask_proto_net = [(256, 3, {'padding': 1}), (256, 3, {'padding': 1}), (256, 3, {'padding': 1}),
                   (None, -2, {}), (256, 3, {'padding': 1}), (32, 1, {})]
