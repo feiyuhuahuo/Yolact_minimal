@@ -114,7 +114,8 @@ pip install labelme
 python utils/labelme2coco.py your-image-and-labelme-json-path your-expected-output-folder --labels the-path-of-labels.txt
 ```
 - Edit `CUSTOM_CLASSES` and `CUSTOM_LABEL_MAP` in `data/config.py`.  
-![Example 5](data/label_name.png)  
+![Example 5](data/label_name.png) 
+Note that if there's only one class, the `CUSTOM_CLASSES` should be like `('plane', )`. The final comma is necessary to make it as a tuple, or the number of classes would be `len('plane')`.
 ![Example 6](data/label_map.png)
 - Edit `custom_dataset` in `data/config.py`, modify the path as your output folder. If you need to validate, prepare the validation dataset by the same way.  
 - Then train, since that the custom dataset is different from coco2017, you might tune the learning rate and learning rate decay by yourself.  
