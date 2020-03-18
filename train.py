@@ -21,7 +21,7 @@ from eval import evaluate
 from data.coco import detection_collate
 
 parser = argparse.ArgumentParser(description='Yolact Training Script')
-parser.add_argument('--config', default='yolact_base_config', help='The config object to use.')
+parser.add_argument('--config', default='res101_coco_config', help='The config object to use.')
 parser.add_argument('--batch_size', default=8, type=int)
 parser.add_argument('--img_size', default=550, type=int, help='The image size for training.')
 parser.add_argument('--resume', default=None, type=str, help='The path of the weight file to resume training with.')
