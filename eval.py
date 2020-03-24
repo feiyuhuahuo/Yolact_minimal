@@ -141,26 +141,25 @@ def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, mak
     """ Returns a list of APs for this image, with each element being for a class  """
 
     with timer.env('After NMS'):
-        class_ids, classes, boxes, masks = after_nms(nms_outs, h, w)
-
-        if class_ids.size(0) == 0:
+        pred_classes, pred_confs, pred_boxes, pred_masks = after_nms(nms_outs, h, w)
+        if pred_classes.size(0) == 0:
             return
 
-        class_ids = list(class_ids.cpu().numpy().astype(int))
-        classes = list(classes.cpu().numpy().astype(float))
-        masks = masks.view(-1, h * w).cuda() if cuda else masks.view(-1, h * w)
-        boxes = boxes.cuda() if cuda else boxes
+        pred_classes = list(pred_classes.cpu().numpy().astype(int))
+        pred_confs = list(pred_confs.cpu().numpy().astype(float))
+        pred_masks = pred_masks.view(-1, h * w).cuda() if cuda else pred_masks.view(-1, h * w)
+        pred_boxes = pred_boxes.cuda() if cuda else pred_boxes
 
     if cocoapi:
         with timer.env('Output json'):
-            boxes = boxes.cpu().numpy()
-            masks = masks.view(-1, h, w).cpu().numpy()
+            pred_boxes = pred_boxes.cpu().numpy()
+            pred_masks = pred_masks.view(-1, h, w).cpu().numpy()
 
-            for i in range(masks.shape[0]):
+            for i in range(pred_masks.shape[0]):
                 # Make sure that the bounding box actually makes sense and a mask was produced
-                if (boxes[i, 3] - boxes[i, 1]) * (boxes[i, 2] - boxes[i, 0]) > 0:
-                    make_json.add_bbox(image_id, class_ids[i], boxes[i, :], classes[i])
-                    make_json.add_mask(image_id, class_ids[i], masks[i, :, :], classes[i])
+                if (pred_boxes[i, 3] - pred_boxes[i, 1]) * (pred_boxes[i, 2] - pred_boxes[i, 0]) > 0:
+                    make_json.add_bbox(image_id, pred_classes[i], pred_boxes[i, :], pred_confs[i])
+                    make_json.add_mask(image_id, pred_classes[i], pred_masks[i, :, :], pred_confs[i])
         return
 
     with timer.env('Prepare gt'):
@@ -177,15 +176,12 @@ def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, mak
             crowd_classes, gt_classes = split(gt_classes)
 
     with timer.env('Eval Setup'):
-        num_pred = len(class_ids)
-        num_gt = len(gt_classes)
-
-        mask_iou_cache = mask_iou(masks, gt_masks)
-        bbox_iou_cache = bbox_iou(boxes.float(), gt_boxes.float())
+        mask_iou_cache = mask_iou(pred_masks, gt_masks)
+        bbox_iou_cache = bbox_iou(pred_boxes.float(), gt_boxes.float())
 
         if num_crowd > 0:
-            crowd_mask_iou_cache = mask_iou(masks, crowd_masks, iscrowd=True)
-            crowd_bbox_iou_cache = bbox_iou(boxes.float(), crowd_boxes.float(), iscrowd=True)
+            crowd_mask_iou_cache = mask_iou(pred_masks, crowd_masks, iscrowd=True)
+            crowd_bbox_iou_cache = bbox_iou(pred_boxes.float(), crowd_boxes.float(), iscrowd=True)
         else:
             crowd_mask_iou_cache = None
             crowd_bbox_iou_cache = None
@@ -194,8 +190,8 @@ def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, mak
                      ('mask', lambda i, j: mask_iou_cache[i, j].item(), lambda i, j: crowd_mask_iou_cache[i, j].item())]
 
     timer.start('Main loop')
-    for _class in set(class_ids + gt_classes):
-        num_gt_for_class = sum([1 for x in gt_classes if x == _class])
+    for _class in set(pred_classes + gt_classes):
+        num_gt_per_class = gt_classes.count(_class)
 
         for iouIdx in range(len(iou_thresholds)):
             iou_threshold = iou_thresholds[iouIdx]
@@ -203,16 +199,16 @@ def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, mak
             for iou_type, iou_func, crowd_func in iou_types:
                 gt_used = [False] * len(gt_classes)
                 ap_obj = ap_data[iou_type][iouIdx][_class]
-                ap_obj.add_gt_positives(num_gt_for_class)
+                ap_obj.add_gt_positives(num_gt_per_class)
 
-                for i in range(num_pred):
-                    if class_ids[i] != _class:
+                for i, pred_class in enumerate(pred_classes):
+                    if pred_class != _class:
                         continue
 
                     max_iou_found = iou_threshold
                     max_match_idx = -1
-                    for j in range(num_gt):
-                        if gt_used[j] or gt_classes[j] != _class:
+                    for j, gt_class in enumerate(gt_classes):
+                        if gt_used[j] or gt_class != _class:
                             continue
 
                         iou = iou_func(i, j)
@@ -223,7 +219,7 @@ def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, mak
 
                     if max_match_idx >= 0:
                         gt_used[max_match_idx] = True
-                        ap_obj.push(classes[i], True)
+                        ap_obj.push(pred_confs[i], True)
                     else:
                         # If the detection matches a crowd, we can just ignore it
                         matched_crowd = False
@@ -243,7 +239,7 @@ def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, mak
                         # same result as COCOEval. There aren't even that many crowd annotations to
                         # begin with, but accuracy is of the utmost importance.
                         if not matched_crowd:
-                            ap_obj.push(classes[i], False)
+                            ap_obj.push(pred_confs[i], False)
     timer.stop('Main loop')
 
 
