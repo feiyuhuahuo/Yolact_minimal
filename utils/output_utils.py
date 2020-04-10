@@ -6,7 +6,6 @@ from utils.box_utils import decode, jaccard
 from utils import timer
 import numpy as np
 import pyximport
-from collections import defaultdict
 from data.config import cfg, COLORS
 
 pyximport.install(setup_args={"include_dirs": np.get_include()}, reload_support=True)
@@ -224,9 +223,9 @@ def draw_lincomb(proto_data, masks, img_name):
 
         coeffs_sort = coeffs[idx]
         arr_h, arr_w = (4, 8)
-        proto_h, proto_w, _ = proto_data.size()
-        arr_img = np.zeros([proto_h * arr_h, proto_w * arr_w])
-        arr_run = np.zeros([proto_h * arr_h, proto_w * arr_w])
+        p_h, p_w, _ = proto_data.size()
+        arr_img = np.zeros([p_h * arr_h, p_w * arr_w])
+        arr_run = np.zeros([p_h * arr_h, p_w * arr_w])
 
         for y in range(arr_h):
             for x in range(arr_w):
@@ -239,98 +238,54 @@ def draw_lincomb(proto_data, masks, img_name):
 
                 running_total_nonlin = (1 / (1 + np.exp(-running_total)))
 
-                arr_img[y * proto_h:(y + 1) * proto_h, x * proto_w:(x + 1) * proto_w] = (proto_data[:, :,
-                                                                                         idx[i]] / torch.max(
+                arr_img[y * p_h:(y + 1) * p_h, x * p_w:(x + 1) * p_w] = (proto_data[:, :, idx[i]] / torch.max(
                     proto_data[:, :, idx[i]])).cpu().numpy() * coeffs_sort[i]
-                arr_run[y * proto_h:(y + 1) * proto_h, x * proto_w:(x + 1) * proto_w] = (
-                        running_total_nonlin > 0.5).astype(np.float)
+                arr_run[y * p_h:(y + 1) * p_h, x * p_w:(x + 1) * p_w] = (running_total_nonlin > 0.5).astype(np.float)
 
         plt.imshow(arr_img)
         plt.savefig(f'results/images/lincomb_{img_name}')
 
 
-def draw_img(results, img, args, class_color=False, fps=None):
-    img_gpu = img / 255.0
+def draw_img(results, img_origin, args, fps=None):
+    class_ids, classes, boxes, masks = [x.cpu().numpy() for x in results]
+    num_detected = class_ids.shape[0]
 
-    # Masks are drawn on the GPU, so don't copy
-    masks = results[3][:args.visual_top_k]
-    class_ids, classes, boxes = [x[:args.visual_top_k].cpu().numpy() for x in results[:3]]
-
-    num_considered = min(args.visual_top_k, class_ids.shape[0])
-    for i in range(num_considered):
-        if classes[i] < args.visual_thre:
-            num_considered = i
-            break
-
-    if num_considered == 0:
+    if num_detected == 0:
         # No detections found so just output the original image
-        return (img_gpu * 255).byte().cpu().numpy()
+        return img_origin
 
-    # Also keeps track of a per-gpu color cache for maximum speed
-    def get_color(j, device=None):
-        color_idx = (class_ids[j] * 5 if class_color else j * 5) % len(COLORS)
-        color = COLORS[color_idx]
-        # The image might come in as RGB or BRG, depending
-        color = (color[2], color[1], color[0])
-
-        if 'cuda' in str(device):
-            color = torch.Tensor(color).to(device.index).float() / 255.
-        elif 'cpu' in str(device):
-            color = torch.Tensor(color).float() / 255.
-
-        return color
-
-    # First, draw the masks on the GPU where we can do it really fast
-    # Beware: very fast but possibly unintelligible mask-drawing code ahead
     if not args.hide_mask:
-        # After this, mask is of size [num_dets, h, w, 1]
-        masks = masks[:num_considered, :, :, None]
-
-        # Prepare the RGB images for each mask given their color (size [num_dets, h, w, 1])
-        colors = torch.cat(
-            [get_color(j, device=img_gpu.device).view(1, 1, 1, 3) for j in range(num_considered)], dim=0)
-        masks_color = masks.repeat(1, 1, 1, 3) * colors * 0.45
-
-        # This is 1 everywhere except for 1-0.45 where the mask is
-        inv_alph_masks = masks * (-0.45) + 1
-
-        masks_color_summand = masks_color[0]
-        if num_considered > 1:
-            inv_alph_cumul = inv_alph_masks[:(num_considered - 1)].cumprod(dim=0)
-            masks_color_cumul = masks_color[1:] * inv_alph_cumul
-            masks_color_summand += masks_color_cumul.sum(dim=0)
-
-        img_gpu = img_gpu * inv_alph_masks.prod(dim=0) + masks_color_summand
+        masks = masks * (class_ids[:, None, None] + 1)  # expand class_ids' shape for broadcasting
+        # The color of the overlap area is different because of the '%' operation.
+        masks = masks.astype('int').sum(axis=0) % (cfg.num_classes - 1)
+        color_masks = COLORS[masks].astype('uint8')
+        img_fused = cv2.addWeighted(color_masks, 0.4, img_origin, 0.6, gamma=0)
 
     scale = 0.6
     thickness = 1
     font = cv2.FONT_HERSHEY_DUPLEX
-    line_type = cv2.LINE_AA
-
-    img_numpy = (img_gpu * 255).byte().cpu().numpy()
 
     if not args.hide_bbox:
-        for i in reversed(range(num_considered)):
+        for i in reversed(range(num_detected)):
             x1, y1, x2, y2 = boxes[i, :]
-            color = get_color(i)
-            score = classes[i]
 
-            cv2.rectangle(img_numpy, (x1, y1), (x2, y2), color, 1)
+            color = COLORS[class_ids[i] + 1].tolist()
+            cv2.rectangle(img_fused, (x1, y1), (x2, y2), color, thickness)
 
             class_name = cfg.dataset.class_names[class_ids[i]]
-            text_str = f'{class_name}: {score:.2f}' if not args.hide_score else class_name
+            text_str = f'{class_name}: {classes[i]:.2f}' if not args.hide_score else class_name
 
             text_w, text_h = cv2.getTextSize(text_str, font, scale, thickness)[0]
-            cv2.rectangle(img_numpy, (x1, y1), (x1 + text_w, y1 + text_h + 5), color, -1)
-            cv2.putText(img_numpy, text_str, (x1, y1 + 15), font, scale, (255, 255, 255), thickness, line_type)
+            cv2.rectangle(img_fused, (x1, y1), (x1 + text_w, y1 + text_h + 5), color, -1)
+            cv2.putText(img_fused, text_str, (x1, y1 + 15), font, scale, (255, 255, 255), thickness, cv2.LINE_AA)
 
     if args.real_time:
         fps_str = f'fps: {fps:.2f}'
         text_w, text_h = cv2.getTextSize(fps_str, font, scale, thickness)[0]
         # Create a shadow to show the fps more clearly
-        img_numpy = img_numpy.astype(np.float32)
-        img_numpy[0:text_h + 8, 0:text_w + 8] *= 0.6
-        img_numpy = img_numpy.astype(np.uint8)
-        cv2.putText(img_numpy, fps_str, (0, text_h + 2), font, scale, (255, 255, 255), thickness, line_type)
+        img_fused = img_fused.astype(np.float32)
+        img_fused[0:text_h + 8, 0:text_w + 8] *= 0.6
+        img_fused = img_fused.astype(np.uint8)
+        cv2.putText(img_fused, fps_str, (0, text_h + 2), font, scale, (255, 255, 255), thickness, cv2.LINE_AA)
 
-    return img_numpy
+    return img_fused

@@ -10,13 +10,11 @@ import time
 from modules.build_yolact import Yolact
 from utils.augmentations import FastBaseTransform
 from utils.functions import MovingAverage, ProgressBar
-from utils import timer
 from data.config import update_config
 from utils.output_utils import NMS, after_nms, draw_img
 
 parser = argparse.ArgumentParser(description='YOLACT COCO Evaluation')
 parser.add_argument('--trained_model', default='weights/yolact_base_54_800000.pth', type=str)
-parser.add_argument('--visual_top_k', default=100, type=int, help='Further restrict the number of predictions to parse')
 parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
 parser.add_argument('--hide_mask', default=False, action='store_true', help='Whether to display masks')
 parser.add_argument('--hide_bbox', default=False, action='store_true', help='Whether to display bboxes')
@@ -59,29 +57,26 @@ with torch.no_grad():
     # detect images
     if args.image is not None:
         images = glob.glob(args.image + '/*.jpg')
-        num = len(images)
 
         for i, one_img in enumerate(images):
             img_name = one_img.split('/')[-1]
-            img_origin = torch.from_numpy(cv2.imread(one_img)).float()
+            img_origin = cv2.imread(one_img)
+            img_tensor = torch.from_numpy(img_origin).float()
             if cuda:
-                img_origin = img_origin.cuda()
-            img_h, img_w = img_origin.shape[0], img_origin.shape[1]
-            img_trans = FastBaseTransform()(img_origin.unsqueeze(0))
+                img_tensor = img_tensor.cuda()
+            img_h, img_w = img_tensor.shape[0], img_tensor.shape[1]
+            img_trans = FastBaseTransform()(img_tensor.unsqueeze(0))
+
             net_outs = net(img_trans)
             nms_outs = NMS(net_outs, args.traditional_nms)
 
             show_lincomb = bool(args.show_lincomb and args.image_path)
-            with timer.env('after nms'):
-                results = after_nms(nms_outs, img_h, img_w, show_lincomb=show_lincomb, crop_masks=not args.no_crop,
-                                    visual_thre=args.visual_thre, img_name=img_name)
-                if cuda:
-                    torch.cuda.synchronize()
+            results = after_nms(nms_outs, img_h, img_w, show_lincomb=show_lincomb, crop_masks=not args.no_crop,
+                                visual_thre=args.visual_thre, img_name=img_name)
 
             img_numpy = draw_img(results, img_origin, args)
-
             cv2.imwrite(f'results/images/{img_name}', img_numpy)
-            print(f'\r{i + 1}/{num}', end='')
+            print(f'\r{i + 1}/{len(images)}', end='')
 
         print('\nDone.')
 
@@ -122,7 +117,7 @@ with torch.no_grad():
                 frame_times.add(time_here - temp)
                 fps = 1 / frame_times.get_avg()
 
-            frame_numpy = draw_img(results, frame_origin, args, class_color=True, fps=fps)
+            frame_numpy = draw_img(results, frame_origin, args, fps=fps)
 
             if args.real_time:
                 cv2.imshow('Detection', frame_numpy)
