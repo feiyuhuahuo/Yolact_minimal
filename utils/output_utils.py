@@ -255,11 +255,16 @@ def draw_img(results, img_origin, args, fps=None):
         return img_origin
 
     if not args.hide_mask:
-        masks = masks * (class_ids[:, None, None] + 1)  # expand class_ids' shape for broadcasting
+        masks_semantic = masks * (class_ids[:, None, None] + 1)  # expand class_ids' shape for broadcasting
         # The color of the overlap area is different because of the '%' operation.
-        masks = masks.astype('int').sum(axis=0) % (cfg.num_classes - 1)
-        color_masks = COLORS[masks].astype('uint8')
+        masks_semantic = masks_semantic.astype('int').sum(axis=0) % (cfg.num_classes - 1)
+        color_masks = COLORS[masks_semantic].astype('uint8')
         img_fused = cv2.addWeighted(color_masks, 0.4, img_origin, 0.6, gamma=0)
+
+        # for i in range(num_detected):
+        #     one_obj = np.tile(masks[i], (3, 1, 1)).transpose((1, 2, 0))
+        #     one_obj = one_obj * img_origin
+        #     cv2.imwrite(f'results/images/{i}.jpg', one_obj)
 
     scale = 0.6
     thickness = 1
