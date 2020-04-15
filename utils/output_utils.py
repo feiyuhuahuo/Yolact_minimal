@@ -57,34 +57,6 @@ def fast_nms(box_thre, coef_thre, class_thre, second_threshold: bool = False):
     box_nms = box_nms[idx]
     coef_nms = coef_nms[idx]
 
-    '''
-    Test code, a little mAP dropped.
-    If one box predicts more than one class, only keep the highest score duplicate.
-    '''
-    # box_list = np.array(box_nms.cpu()).tolist()
-    # class_nms_list = np.array(class_nms.cpu()).tolist()
-    #
-    # repeat = []
-    # ss = list(np.arange(len(box_list)))
-    #
-    # for aa in box_list:
-    #     if (box_list.count(aa) > 1) and (aa not in repeat):
-    #         repeat.append(aa)
-    #
-    # for aa in repeat:
-    #     id1 = [j for j, bb in enumerate(box_list) if bb == aa]
-    #     temp = [class_nms_list[aa] for aa in id1]
-    #     temp = np.array(temp).argmax()
-    #     id1.remove(id1[temp])
-    #
-    #     for jj in id1:
-    #         ss.remove(jj)
-    #
-    # box_nms = box_nms[ss]
-    # coef_nms = coef_nms[ss]
-    # classes = classes[ss]
-    # class_nms = class_nms[ss]
-
     return box_nms, coef_nms, class_ids, class_nms
 
 

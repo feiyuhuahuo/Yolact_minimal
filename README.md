@@ -78,7 +78,7 @@ python eval.py --trained_model=res101_coco_800000.pth --cocoapi
 # To detect images, put your images to the 'images' folder, then:
 python detect.py --trained_model=res101_coco_800000.pth --image images
 # Use --cutout to cut out objects.
-python detect.py --trained_model=res101_coco_800000.pth --image images
+python detect.py --trained_model=res101_coco_800000.pth --image images --cutout
 # To detect videos, put your videos to the 'videos' folder, then:
 python detect.py --trained_model=res101_coco_800000.pth --video 1.mp4
 # Use --real_time to detect real-timely.
