@@ -246,7 +246,7 @@ def draw_lincomb(proto_data, masks, img_name):
         plt.savefig(f'results/images/lincomb_{img_name}')
 
 
-def draw_img(results, img_origin, args, fps=None):
+def draw_img(results, img_origin, img_name, args, fps=None):
     class_ids, classes, boxes, masks = [x.cpu().numpy() for x in results]
     num_detected = class_ids.shape[0]
 
@@ -261,10 +261,15 @@ def draw_img(results, img_origin, args, fps=None):
         color_masks = COLORS[masks_semantic].astype('uint8')
         img_fused = cv2.addWeighted(color_masks, 0.4, img_origin, 0.6, gamma=0)
 
-        # for i in range(num_detected):
-        #     one_obj = np.tile(masks[i], (3, 1, 1)).transpose((1, 2, 0))
-        #     one_obj = one_obj * img_origin
-        #     cv2.imwrite(f'results/images/{i}.jpg', one_obj)
+        if args.cutout:
+            for i in range(num_detected):
+                one_obj = np.tile(masks[i], (3, 1, 1)).transpose((1, 2, 0))
+                one_obj = one_obj * img_origin
+                new_mask = masks[i] == 0
+                new_mask = np.tile(new_mask * 255, (3, 1, 1)).transpose((1, 2, 0))
+                x1, y1, x2, y2 = boxes[i, :]
+                img_matting = (one_obj + new_mask)[y1:y2, x1:x2, :]
+                cv2.imwrite(f'results/images/{img_name}_{i}.jpg', img_matting)
 
     scale = 0.6
     thickness = 1

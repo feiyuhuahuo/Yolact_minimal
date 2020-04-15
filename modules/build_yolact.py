@@ -86,9 +86,9 @@ class PredictionModule(nn.Module):
 
     def forward(self, x):
         x = self.upfeature(x)
-        conf = self.conf_layer(x).permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, self.num_classes)
-        bbox = self.bbox_layer(x).permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, 4)
-        coef = self.mask_layer(x).permute(0, 2, 3, 1).contiguous().view(x.size(0), -1, self.coef_dim)
+        conf = self.conf_layer(x).permute(0, 2, 3, 1).reshape(x.size(0), -1, self.num_classes)
+        bbox = self.bbox_layer(x).permute(0, 2, 3, 1).reshape(x.size(0), -1, 4)
+        coef = self.mask_layer(x).permute(0, 2, 3, 1).reshape(x.size(0), -1, self.coef_dim)
         coef = torch.tanh(coef)
 
         return {'box': bbox, 'class': conf, 'coef': coef}

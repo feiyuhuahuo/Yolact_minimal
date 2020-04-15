@@ -73,8 +73,11 @@ python eval.py --trained_model=res101_coco_800000.pth --cocoapi
 ```
 ## Detect
 ![Example 2](data/2.jpg)
+![Example 7](data/cutout.jpg)
 ```Shell
 # To detect images, put your images to the 'images' folder, then:
+python detect.py --trained_model=res101_coco_800000.pth --image images
+# Use --cutout to cut out objects.
 python detect.py --trained_model=res101_coco_800000.pth --image images
 # To detect videos, put your videos to the 'videos' folder, then:
 python detect.py --trained_model=res101_coco_800000.pth --video 1.mp4

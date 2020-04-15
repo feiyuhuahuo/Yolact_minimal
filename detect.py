@@ -19,6 +19,7 @@ parser.add_argument('--traditional_nms', default=False, action='store_true', hel
 parser.add_argument('--hide_mask', default=False, action='store_true', help='Whether to display masks')
 parser.add_argument('--hide_bbox', default=False, action='store_true', help='Whether to display bboxes')
 parser.add_argument('--hide_score', default=False, action='store_true', help='Whether to display scores')
+parser.add_argument('--cutout', default=False, action='store_true', help='Whether to cut out each object')
 parser.add_argument('--show_lincomb', default=False, action='store_true',
                     help='Whether to show the generating process of masks.')
 parser.add_argument('--no_crop', default=False, action='store_true',
@@ -74,7 +75,7 @@ with torch.no_grad():
             results = after_nms(nms_outs, img_h, img_w, show_lincomb=show_lincomb, crop_masks=not args.no_crop,
                                 visual_thre=args.visual_thre, img_name=img_name)
 
-            img_numpy = draw_img(results, img_origin, args)
+            img_numpy = draw_img(results, img_origin, img_name, args)
             cv2.imwrite(f'results/images/{img_name}', img_numpy)
             print(f'\r{i + 1}/{len(images)}', end='')
 
