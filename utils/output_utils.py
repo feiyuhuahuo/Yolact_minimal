@@ -68,7 +68,7 @@ def traditional_nms(boxes, masks, scores, iou_threshold=0.5, conf_thresh=0.05):
     scr_lst = []
 
     # Multiplying by max_size is necessary because of how cnms computes its area and intersections
-    boxes = boxes * cfg.max_size
+    boxes = boxes * cfg.img_size
 
     for _cls in range(num_classes):
         cls_scores = scores[_cls, :]
@@ -94,14 +94,14 @@ def traditional_nms(boxes, masks, scores, iou_threshold=0.5, conf_thresh=0.05):
     scores = torch.cat(scr_lst, dim=0)
 
     scores, idx2 = scores.sort(0, descending=True)
-    idx2 = idx2[:cfg.max_num_detections]
-    scores = scores[:cfg.max_num_detections]
+    idx2 = idx2[:cfg.max_detections]
+    scores = scores[:cfg.max_detections]
 
     idx = idx[idx2]
     class_ids = class_ids[idx2]
 
     # Undo the multiplication above
-    return boxes[idx] / cfg.max_size, masks[idx], class_ids, scores
+    return boxes[idx] / cfg.img_size, masks[idx], class_ids, scores
 
 
 def NMS(net_outs, trad_nms=False):
