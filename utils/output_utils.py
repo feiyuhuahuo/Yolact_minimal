@@ -3,16 +3,15 @@ import cv2
 from utils.box_utils import crop, sanitize_coordinates
 import torch
 from utils.box_utils import decode, jaccard
-from utils import timer
 import numpy as np
 import pyximport
-from data.config import cfg, COLORS
+from data.config import COLORS
 
 pyximport.install(setup_args={"include_dirs": np.get_include()}, reload_support=True)
 from utils.cython_nms import nms as cnms
 
 
-def fast_nms(box_thre, coef_thre, class_thre, second_threshold: bool = False):
+def fast_nms(box_thre, coef_thre, class_thre, cfg, second_threshold=False):
     class_thre, idx = class_thre.sort(1, descending=True)  # [80, 64 (the number of kept boxes)]
 
     idx = idx[:, :cfg.top_k].contiguous()
@@ -28,7 +27,7 @@ def fast_nms(box_thre, coef_thre, class_thre, second_threshold: bool = False):
     iou_max, _ = iou.max(dim=1)
 
     # Now just filter out the ones higher than the threshold
-    keep = (iou_max <= cfg.nms_thre)
+    keep = (iou_max <= cfg.nms_iou_thre)
 
     # We should also only keep detections over the confidence threshold, but at the cost of
     # maxing out your detection count for every image, you can just not do that. Because we
@@ -36,7 +35,7 @@ def fast_nms(box_thre, coef_thre, class_thre, second_threshold: bool = False):
     # this increase doesn't affect us much (+0.2 mAP for 34 -> 33 fps), so we leave it out.
     # However, when you implement this in your method, you should do this second threshold.
     if second_threshold:
-        keep *= (class_thre > cfg.conf_thresh)
+        keep *= (class_thre > cfg.nms_score_thresh)
 
     # Assign each kept detection to its corresponding class
     class_ids = torch.arange(num_classes, device=box_thre.device)[:, None].expand_as(keep)
@@ -60,7 +59,7 @@ def fast_nms(box_thre, coef_thre, class_thre, second_threshold: bool = False):
     return box_nms, coef_nms, class_ids, class_nms
 
 
-def traditional_nms(boxes, masks, scores, iou_threshold=0.5, conf_thresh=0.05):
+def traditional_nms(boxes, masks, scores, cfg):
     num_classes = scores.size(0)
 
     idx_lst = []
@@ -72,7 +71,7 @@ def traditional_nms(boxes, masks, scores, iou_threshold=0.5, conf_thresh=0.05):
 
     for _cls in range(num_classes):
         cls_scores = scores[_cls, :]
-        conf_mask = cls_scores > conf_thresh
+        conf_mask = cls_scores > cfg.nms_score_thre
         idx = torch.arange(cls_scores.size(0), device=boxes.device)
 
         cls_scores = cls_scores[conf_mask]
@@ -82,8 +81,8 @@ def traditional_nms(boxes, masks, scores, iou_threshold=0.5, conf_thresh=0.05):
             continue
 
         preds = torch.cat([boxes[conf_mask], cls_scores[:, None]], dim=1).cpu().numpy()
-        keep = cnms(preds, iou_threshold)
-        keep = torch.Tensor(keep, device=boxes.device).long()
+        keep = cnms(preds, cfg.nms_iou_thre)
+        keep = torch.tensor(keep, device=boxes.device).long()
 
         idx_lst.append(idx[keep])
         cls_lst.append(keep * 0 + _cls)
@@ -104,41 +103,39 @@ def traditional_nms(boxes, masks, scores, iou_threshold=0.5, conf_thresh=0.05):
     return boxes[idx] / cfg.img_size, masks[idx], class_ids, scores
 
 
-def NMS(net_outs, trad_nms=False):
+def nms(cfg, net_outs, use_fast_nms=True):
     box_p = net_outs['box'].squeeze()  # [19248, 4]
     class_p = net_outs['class'].squeeze()  # [19248, 81]
     coef_p = net_outs['coef'].squeeze()  # [19248, 32]
     anchors = net_outs['anchors']  # [19248, 4]
     proto_p = net_outs['proto'].squeeze()  # [138, 138, 32]
 
-    with timer.env('Detect'):
-        class_p = class_p.transpose(1, 0).contiguous()  # [81, 19248]
-        box_decode = decode(box_p, anchors)  # [19248, 4]
+    class_p = class_p.transpose(1, 0).contiguous()  # [81, 19248]
+    box_decode = decode(box_p, anchors)  # [19248, 4]
 
-        # exclude the background class
-        class_p = class_p[1:, :]
-        # get the max score class of 19248 predicted boxes
-        class_p_max, _ = torch.max(class_p, dim=0)  # [19248]
+    # exclude the background class
+    class_p = class_p[1:, :]
+    # get the max score class of 19248 predicted boxes
+    class_p_max, _ = torch.max(class_p, dim=0)  # [19248]
 
-        # filter predicted boxes according the class score
-        keep = (class_p_max > cfg.conf_thre)
-        class_thre = class_p[:, keep]
-        box_thre = box_decode[keep, :]
-        coef_thre = coef_p[keep, :]
+    # filter predicted boxes according the class score
+    keep = (class_p_max > cfg.nms_score_thre)
+    class_thre = class_p[:, keep]
+    box_thre = box_decode[keep, :]
+    coef_thre = coef_p[keep, :]
 
-        if class_thre.size(1) == 0:
-            result = None
-
+    if class_thre.size(1) == 0:
+        result = None
+    else:
+        if use_fast_nms:
+            box_thre, coef_thre, class_ids, class_thre = fast_nms(box_thre, coef_thre, class_thre, cfg)
         else:
-            if not trad_nms:
-                box_thre, coef_thre, class_ids, class_thre = fast_nms(box_thre, coef_thre, class_thre)
-            else:
-                box_thre, coef_thre, class_ids, class_thre = traditional_nms(box_thre, coef_thre, class_thre)
+            box_thre, coef_thre, class_ids, class_thre = traditional_nms(box_thre, coef_thre, class_thre, cfg)
 
-            result = {'box': box_thre, 'coef': coef_thre, 'class_ids': class_ids, 'class': class_thre}
+        result = {'box': box_thre, 'coef': coef_thre, 'class_ids': class_ids, 'class': class_thre}
 
-            if result is not None and proto_p is not None:
-                result['proto'] = proto_p
+        if result is not None and proto_p is not None:
+            result['proto'] = proto_p
 
     return result
 

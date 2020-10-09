@@ -1,6 +1,7 @@
 import os
 import numpy as np
-from modules.backbone import ResNetBackbone
+import torch
+import torch.distributed as dist
 
 if not os.path.exists('results/'):
     os.mkdir('results/')
@@ -29,10 +30,6 @@ COLORS = np.array([[0, 0, 0], [244, 67, 54], [233, 30, 99], [156, 39, 176], [103
                    [0, 155, 0], [0, 0, 155], [46, 22, 130], [255, 0, 155], [155, 0, 255],
                    [255, 155, 0], [155, 255, 0], [0, 155, 255], [0, 255, 155], [18, 5, 40],
                    [120, 120, 255], [255, 58, 30], [60, 45, 60], [75, 27, 244], [128, 25, 70]], dtype='uint8')
-
-# These are in BGR and are for ImageNet
-MEANS = (103.94, 116.78, 123.68)
-STD = (57.38, 57.12, 58.40)
 
 COCO_CLASSES = ('person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus',
                 'train', 'truck', 'boat', 'traffic light', 'fire hydrant',
@@ -67,166 +64,167 @@ COCO_LABEL_MAP = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8,
                   74: 65, 75: 66, 76: 67, 77: 68, 78: 69, 79: 70, 80: 71, 81: 72,
                   82: 73, 84: 74, 85: 75, 86: 76, 87: 77, 88: 78, 89: 79, 90: 80}
 
-PASCAL_LABEL_MAP = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10,
-                    11: 11, 12: 12, 13: 13, 14: 14, 15: 15, 16: 16, 17: 17, 18: 18, 19: 19, 20: 20}
-
-CUSTOM_LABEL_MAP = {1: 1, 2: 2, 3: 3, 4: 4}  # This is just an example, modify it as you like.
-
-
-class Config(object):
-    """
-    After implement this class, you can call 'cfg.x' instead of 'cfg['x']' to get a certain parameter.
-    """
-
-    def __init__(self, config_dict):
-        for key, val in config_dict.items():
-            self.__setattr__(key, val)
-
-    def copy(self, new_config_dict={}):
-        """
-        Copies this config into a new config object, making the changes given by new_config_dict.
-        """
-        ret = Config(vars(self))
-        for key, val in new_config_dict.items():
-            ret.__setattr__(key, val)
-
-        return ret
-
-    def replace(self, new_config_dict):
-        """
-        Copies new_config_dict into this config object. Note: new_config_dict can also be a config object.
-        """
-        if isinstance(new_config_dict, Config):
-            new_config_dict = vars(new_config_dict)
-
-        for key, val in new_config_dict.items():
-            self.__setattr__(key, val)
-
-    def __repr__(self):
-        return self.name
-
-
-# ----------------------- DATASETS ----------------------- #
-coco_dataset = Config({'name': 'COCO 2017',
-                       'train_images': '/home/feiyu/Data/coco2017/train2017/',
-                       'train_info': '/home/feiyu/Data/coco2017/annotations/instances_train2017.json',
-                       'valid_images': '/home/feiyu/Data/coco2017/val2017/',
-                       'valid_info': '/home/feiyu/Data/coco2017/annotations/instances_val2017.json',
-                       'class_names': COCO_CLASSES})
-
-pascal_sbd_dataset = Config({'name': 'Pascal SBD 2012',
-                             'train_images': '/home/feiyu/Data/pascal_sbd/dataset/img',
-                             'valid_images': '/home/feiyu/Data/pascal_sbd/dataset/img',
-                             'train_info': '/home/feiyu/Data/pascal_sbd/dataset/pascal_sbd_train.json',
-                             'valid_info': '/home/feiyu/Data/pascal_sbd/dataset/pascal_sbd_val.json',
-                             'class_names': PASCAL_CLASSES})
-
-custom_dataset = Config({'name': 'Custom dataset',
-                         'train_images': '/home/feiyu/Data/custom/',  # No need to add 'JPEGImages/'.
-                         'train_info': '/home/feiyu/Data/custom/annotations.json',
-                         'valid_images': 'decide by yourself',
-                         'valid_info': 'decide by yourself',
-                         'class_names': CUSTOM_CLASSES})
-
-# ----------------------- TRANSFORMS ----------------------- #
-resnet_transform = Config({'channel_order': 'RGB',
-                           'normalize': True,
-                           'subtract_means': False,
-                           'to_float': False})
-
-# ----------------------- BACKBONES ----------------------- #
-resnet101_backbone = Config({'name': 'ResNet101',
-                             'path': 'resnet101_reducedfc.pth',
-                             'type': ResNetBackbone,
-                             'args': ([3, 4, 23, 3],),
-                             'transform': resnet_transform,
-                             'selected_layers': [1, 2, 3]})
-
-resnet50_backbone = resnet101_backbone.copy({'name': 'ResNet50',
-                                             'path': 'resnet50-19c8e357.pth',
-                                             'args': ([3, 4, 6, 3],)})
-
-res101_coco_config = Config({
-    'name': 'res101_coco',
-    'dataset': coco_dataset,
-    'num_classes': len(coco_dataset.class_names) + 1,
-    'batch_size': 8,
-    'img_size': 550,  # image size
-    'max_iter': 800000,
-    'backbone': resnet101_backbone,
-    # During training, first compute the maximum gt IoU for each prior.
-    # Then, for priors whose maximum IoU is over the positive threshold, marked as positive.
-    # For priors whose maximum IoU is less than the negative threshold, marked as negative.
-    # The rest are neutral ones and are not used to calculate the loss.
-    'pos_iou_thre': 0.5,
-    'neg_iou_thre': 0.4,
-    # If less than 1, anchors treated as a negative that have a crowd iou over this threshold with
-    # the crowd boxes will be treated as a neutral.
-    'crowd_iou_threshold': 0.7,
-    'conf_alpha': 1,
-    'bbox_alpha': 1.5,
-    'mask_alpha': 6.125,
-    # Learning rate
-    'lr_steps': (280000, 600000, 700000, 750000),
-    'lr': 1e-3,
-    'momentum': 0.9,
-    'decay': 5e-4,
-    # warm up setting
-    'warmup_init': 1e-4,
-    'warmup_until': 500,
-    # The max number of masks to train for one image.
-    'masks_to_train': 100,
-    # anchor settings
-    'scales': [24, 48, 96, 192, 384],
-    'aspect_ratios': [1, 1 / 2, 2],
-    'use_square_anchors': True,  # This is for backward compatability with a bug.
-    # Whether to train the semantic segmentations branch, this branch is only implemented during training.
-    'train_semantic': True,
-    'semantic_alpha': 1,
-    # postprocess hyperparameters
-    'conf_thre': 0.05,
-    'nms_thre': 0.5,
-    'top_k': 200,
-    'max_detections': 100,
-    # Freeze the backbone bn layer during training, other additional bn layers after the backbone will not be frozen.
-    'freeze_bn': False,
-    'label_map': COCO_LABEL_MAP})
-
 mask_proto_net = [(256, 3, {'padding': 1}), (256, 3, {'padding': 1}), (256, 3, {'padding': 1}),
                   (None, -2, {}), (256, 3, {'padding': 1}), (32, 1, {})]
 
 extra_head_net = [(256, 3, {'padding': 1})]
 
-res50_coco_config = res101_coco_config.copy({'name': 'res50_coco',
-                                             'backbone': resnet50_backbone})
 
-res50_pascal_config = res50_coco_config.copy({
-    'name': 'res50_pascal',
-    'dataset': pascal_sbd_dataset,
-    'num_classes': len(pascal_sbd_dataset.class_names) + 1,
-    'max_iter': 120000,
-    'lr_steps': (60000, 100000),
-    'scales': [32, 64, 128, 256, 512],
-    'label_map': PASCAL_LABEL_MAP,
-    'use_square_anchors': False})
+class res101_coco:
+    def __init__(self, args, val_mode=False):
+        self.data_root = '/home/feiyu/Data/'
 
-res101_custom_config = res101_coco_config.copy({
-    'name': 'res101_custom',
-    'dataset': custom_dataset,
-    'num_classes': len(custom_dataset.class_names) + 1,
-    'label_map': CUSTOM_LABEL_MAP})
+        self.gpu_id = args.gpu_id
+        if not val_mode:
+            self.train_bs = args.train_bs
+            self.bs_per_gpu = args.bs_per_gpu
+        self.test_bs = args.test_bs
+        if not val_mode:
+            self.train_imgs = self.data_root + 'coco2017/train2017/'
+            self.train_ann = self.data_root + 'coco2017/annotations/instances_train2017.json'
+        self.val_imgs = self.data_root + 'coco2017/val2017/'
+        self.val_ann = self.data_root + 'coco2017/annotations/instances_val2017.json'
+        self.val_num = args.val_num
+
+        self.img_size = args.img_size
+        self.class_names = COCO_CLASSES
+        self.num_classes = len(COCO_CLASSES) + 1
+        self.continuous_id = COCO_LABEL_MAP
+
+        if not val_mode:
+            self.weight = args.resume if args.resume else 'weights/resnet101_reducedfc.pth'
+            self.pos_iou_thre = 0.5
+            self.neg_iou_thre = 0.4
+            # If less than 1, anchors treated as a negative that have a crowd iou over this threshold with
+            # the crowd boxes will be treated as a neutral.
+            self.crowd_iou_threshold = 0.7
+
+            self.conf_alpha = 1
+            self.bbox_alpha = 1.5
+            self.mask_alpha = 6.125
+            self.semantic_alpha = 1
+
+            self.bs_factor = self.train_bs / 8
+            self.lr = 0.001 * self.bs_factor
+            self.warmup_init = self.lr * 0.1
+            self.warmup_until = int(500 / self.bs_factor)
+            self.max_iter = int(800000 / self.bs_factor)
+            self.lr_steps = tuple([int(aa / self.bs_factor) for aa in (280000, 600000, 700000, 750000)])
+
+            # The max number of masks to train for one image.
+            self.masks_to_train = 100
+            # Freeze the backbone bn layer during training, any other additional
+            # bn layers behind backbone will not be frozen.
+            self.freeze_bn = True if self.bs_per_gpu <= 4 else False
+        else:
+            self.weight = args.weight
+
+        # anchor settings
+        self.scales = [int(self.img_size / 550 * aa) for aa in (24, 48, 96, 192, 384)]
+        self.aspect_ratios = [1, 1 / 2, 2]
+        self.use_square_anchors = True  # This is for backward compatability with a bug.
+
+        # Whether to train the semantic segmentations branch, this branch is only implemented during training.
+        self.train_semantic = True
+
+        self.fast_nms = True
+        self.nms_score_thre = 0.05
+        self.nms_iou_thre = 0.5
+        self.top_k = 200
+        self.max_detections = 100
+
+        self.val_mode = val_mode
+
+    def print_cfg(self):
+        print()
+        print('-' * 30 + self.__class__.__name__ + '-' * 30)
+        for k, v in vars(self).items():
+            if k not in ('bs_factor', 'val_mode'):
+                print(f'{k}: {v}')
+        print()
 
 
-def update_config(config, batch_size=None, img_size=None):
-    global cfg
-    cfg.replace(eval(config))
-
-    if batch_size:
-        setattr(cfg, 'batch_size', batch_size)
-    if img_size:
-        setattr(cfg, 'img_size', img_size)
-        scales = [int(img_size / 550 * aa) for aa in cfg.scales]
-        setattr(cfg, 'scales', scales)
+class res50_coco(res101_coco):
+    def __init__(self, args, val_mode=False):
+        super().__init__(args, val_mode)
+        if not val_mode:
+            self.weight = args.resume if args.resume else 'weights/resnet50-19c8e357.pth'
+        else:
+            self.weight = args.weight
 
 
-cfg = res101_coco_config.copy()
+class res50_pascal(res101_coco):
+    def __init__(self, args, val_mode=False):
+        super().__init__(args, val_mode)
+
+        if not val_mode:
+            self.train_imgs = self.data_root + 'pascal_sbd/dataset/img'
+            self.train_ann = self.data_root + 'pascal_sbd/dataset/pascal_sbd_train.json'
+        self.val_imgs = self.data_root + 'pascal_sbd/dataset/img'
+        self.val_ann = self.data_root + 'pascal_sbd/dataset/pascal_sbd_val.json'
+
+        self.class_names = PASCAL_CLASSES
+        self.num_classes = len(PASCAL_CLASSES) + 1
+        self.continuous_id = {(aa + 1): (aa + 1) for aa in range(self.num_classes - 1)}
+        self.use_square_anchors = False
+
+        if not val_mode:
+            self.weight = args.resume if args.resume else 'weights/resnet50-19c8e357.pth'
+            self.max_iter = int(120000 / self.bs_factor)
+            self.lr_steps = tuple([int(aa / self.bs_factor) for aa in (60000, 100000)])
+            self.scales = [int(self.img_size / 550 * aa) for aa in (32, 64, 128, 256, 512)]
+
+
+class res101_custom(res101_coco):
+    def __init__(self, args, val_mode=False):
+        super().__init__(args, val_mode)
+        if not val_mode:
+            self.train_imgs = self.data_root + 'custom/'  # No need to add 'JPEGImages/'.
+            self.train_ann = self.data_root + 'custom/train_ann.json'
+        self.val_imgs = self.data_root + 'custom/'
+        self.val_ann = self.data_root + 'custom/val_ann.json'
+        self.class_names = CUSTOM_CLASSES
+        self.num_classes = len(self.class_names) + 1,
+        self.continuous_id = {(aa + 1): (aa + 1) for aa in range(self.num_classes - 1)}
+
+
+class res50_custom(res101_coco):
+    def __init__(self, args, val_mode=False):
+        super().__init__(args, val_mode)
+        if not val_mode:
+            self.train_imgs = self.data_root + 'custom/'  # No need to add 'JPEGImages/'.
+            self.train_ann = self.data_root + 'custom/train_ann.json'
+        self.val_imgs = self.data_root + 'custom/'
+        self.val_ann = self.data_root + 'custom/val_ann.json'
+        self.class_names = CUSTOM_CLASSES
+        self.num_classes = len(self.class_names) + 1,
+        self.continuous_id = {(aa + 1): (aa + 1) for aa in range(self.num_classes - 1)}
+
+        if not val_mode:
+            self.weight = args.resume if args.resume else 'weights/resnet50-19c8e357.pth'
+        else:
+            self.weight = args.weight
+
+
+def get_config(args, val_mode=False):
+    if val_mode:
+        assert args.gpu_id.isdigit(), f'Only one GPU can be used in val mode, got {args.gpu_id}.'
+        os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
+    else:
+        torch.cuda.set_device(args.local_rank)
+        dist.init_process_group(backend="nccl", init_method="env://")
+
+        # Only launched by torch.distributed.launch, 'WORLD_SIZE' can be add to environment variables.
+        num_gpus = int(os.environ["WORLD_SIZE"])
+        assert args.train_bs % num_gpus == 0, 'Training batch size must be divisible by GPU number.'
+        args.bs_per_gpu = int(args.train_bs / num_gpus)
+        args.gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES') if os.environ.get('CUDA_VISIBLE_DEVICES') else 0
+
+    cfg = globals()[args.cfg](args, val_mode)  # change the desired config here
+
+    if val_mode:
+        cfg.print_cfg()
+    elif dist.get_rank() == 0:
+        cfg.print_cfg()
+
+    return cfg

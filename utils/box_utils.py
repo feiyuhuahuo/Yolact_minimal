@@ -2,7 +2,6 @@
 import torch
 from itertools import product
 from math import sqrt
-from data.config import cfg
 
 
 def center_size(boxes):
@@ -60,21 +59,7 @@ def jaccard(box_a, box_b, iscrowd: bool = False):
     return out if use_batch else out.squeeze(0)
 
 
-def match(pos_thresh, neg_thresh, box_gt, priors, class_gt, crowd_boxes):
-    """
-    Match each prior box with the ground truth box of the highest jaccard overlap, encode the bounding boxes,
-    then return the matched indices corresponding to both confidence and location preds.
-    Args:
-        pos_thresh: (float) IoU > pos_thresh ==> positive.
-        neg_thresh: (float) IoU < neg_thresh ==> negative.
-        box_gt: (tensor) Ground truth boxes, Shape: [num_obj, 4], (xmin, ymin, xmax, ymax).
-        priors: (tensor) Prior boxes from priorbox layers, Shape: [n_priors, 4], (center_x, center_y, w, h).
-        class_gt: (tensor) All the class labels for the image, Shape: [num_obj].
-        crowd_boxes: (tensor) All the crowd box annotations or None if there are none.
-
-    Return:
-        The matched indices corresponding to 1)location and 2)confidence preds.
-    """
+def match(cfg, box_gt, priors, class_gt, crowd_boxes):
     priors = priors.data
     # Convert prior boxes to the form of [xmin, ymin, xmax, ymax].
     decoded_priors = torch.cat((priors[:, :2] - priors[:, 2:] / 2, priors[:, :2] + priors[:, 2:] / 2), 1)
@@ -96,8 +81,8 @@ def match(pos_thresh, neg_thresh, box_gt, priors, class_gt, crowd_boxes):
     each_prior_box = box_gt[each_prior_index]  # size: [num_priors, 4]
     conf = class_gt[each_prior_index] + 1  # the class of the max IoU gt box for each prior, size: [num_priors]
 
-    conf[each_prior_max < pos_thresh] = -1  # label as neutral
-    conf[each_prior_max < neg_thresh] = 0  # label as background
+    conf[each_prior_max < cfg.pos_thresh] = -1  # label as neutral
+    conf[each_prior_max < cfg.neg_thresh] = 0  # label as background
 
     # Deal with crowd annotations for COCO
     if crowd_boxes is not None and cfg.crowd_iou_threshold < 1:
@@ -113,7 +98,7 @@ def match(pos_thresh, neg_thresh, box_gt, priors, class_gt, crowd_boxes):
     return offsets, conf, each_prior_box, each_prior_index
 
 
-def make_anchors(conv_h, conv_w, scale):
+def make_anchors(cfg, conv_h, conv_w, scale):
     prior_data = []
     # Iteration order is important (it has to sync up with the convout)
     for j, i in product(range(conv_h), range(conv_w)):
@@ -226,8 +211,8 @@ def mask_iou(mask1, mask2, iscrowd=False):
     Note: if iscrowd is True, then mask2 should be the crowd.
     """
     intersection = torch.matmul(mask1, mask2.t())
-    area1 = torch.sum(mask1, dim=1).view(1, -1)
-    area2 = torch.sum(mask2, dim=1).view(1, -1)
+    area1 = torch.sum(mask1, dim=1).reshape(1, -1)
+    area2 = torch.sum(mask2, dim=1).reshape(1, -1)
     union = (area1.t() + area2) - intersection
 
     if iscrowd:

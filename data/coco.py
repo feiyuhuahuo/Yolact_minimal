@@ -3,9 +3,8 @@ import torch
 import torch.utils.data as data
 import cv2
 import numpy as np
-from data.config import cfg
 from pycocotools.coco import COCO
-
+from utils.augmentations import TrainAug, ValAug
 
 def detection_collate(batch):
     imgs = []
@@ -23,12 +22,12 @@ def detection_collate(batch):
 
 
 class COCODetection(data.Dataset):
-    def __init__(self, image_path, info_file, augmentation=None):
-        self.image_path = image_path
-        self.coco = COCO(info_file)
+    def __init__(self, cfg, val):
+        self.image_path = cfg.train_imgs if not val else cfg.val_imgs
+        self.coco = COCO(cfg.train_ann if not val else cfg.val_ann)
         self.ids = list(self.coco.imgToAnns.keys())
-        self.augmentation = augmentation
-        self.label_map = cfg.label_map
+        self.augmentation = TrainAug(cfg) if not val else ValAug(cfg)
+        self.continuous_id = cfg.continuous_id
 
     def __getitem__(self, index):
         im, gt, masks, h, w, num_crowds = self.pull_item(index)
@@ -73,7 +72,7 @@ class COCODetection(data.Dataset):
             for obj in target:
                 if 'bbox' in obj:
                     bbox = obj['bbox']
-                    label_idx = self.label_map[obj['category_id']] - 1
+                    label_idx = self.continuous_id[obj['category_id']] - 1
                     final_box = list(np.array([bbox[0], bbox[1], bbox[0] + bbox[2], bbox[1] + bbox[3]]) / scale)
                     final_box.append(label_idx)
                     box_list += [final_box]  # (xmin, ymin, xmax, ymax, label_idx), between 0~1

@@ -1,10 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from data.config import cfg, mask_proto_net, extra_head_net
+from data.config import mask_proto_net, extra_head_net
 from modules.backbone import construct_backbone
 from utils.box_utils import make_anchors
-from utils import timer
 
 
 class Concat(nn.Module):
@@ -19,10 +18,7 @@ class Concat(nn.Module):
 
 
 class InterpolateModule(nn.Module):
-    """
-    A module version of F.interpolate.
-    """
-
+    # A module version of F.interpolate.
     def __init__(self, *args, **kwdargs):
         super().__init__()
 
@@ -72,17 +68,15 @@ def make_net(in_channels, cfg_net, include_last_relu=True):
 
 
 class PredictionModule(nn.Module):
-    def __init__(self, in_channels, coef_dim):
+    def __init__(self, cfg, in_channels=256, coef_dim=32):
         super().__init__()
-
         self.num_classes = cfg.num_classes
         self.coef_dim = coef_dim
-        self.num_priors = len(cfg.aspect_ratios)
 
         self.upfeature, out_channels = make_net(in_channels, extra_head_net)
-        self.bbox_layer = nn.Conv2d(out_channels, self.num_priors * 4, kernel_size=3, padding=1)
-        self.conf_layer = nn.Conv2d(out_channels, self.num_priors * self.num_classes, kernel_size=3, padding=1)
-        self.mask_layer = nn.Conv2d(out_channels, self.num_priors * self.coef_dim, kernel_size=3, padding=1)
+        self.bbox_layer = nn.Conv2d(out_channels, len(cfg.aspect_ratios) * 4, kernel_size=3, padding=1)
+        self.conf_layer = nn.Conv2d(out_channels, len(cfg.aspect_ratios) * self.num_classes, kernel_size=3, padding=1)
+        self.mask_layer = nn.Conv2d(out_channels, len(cfg.aspect_ratios) * self.coef_dim, kernel_size=3, padding=1)
 
     def forward(self, x):
         x = self.upfeature(x)
@@ -152,12 +146,13 @@ class FPN(nn.Module):
 
 
 class Yolact(nn.Module):
-    def __init__(self):
+    def __init__(self, cfg):
         super().__init__()
+        self.cfg = cfg
         self.anchors = []
-        self.backbone = construct_backbone(cfg.backbone)
+        self.backbone = construct_backbone(cfg.__class__.__name__, (1, 2, 3))
 
-        if cfg.freeze_bn:
+        if (not cfg.val_mode) and cfg.freeze_bn:
             self.freeze_bn()
 
         self.proto_net, coef_dim = make_net(256, mask_proto_net, include_last_relu=False)
@@ -177,10 +172,9 @@ class Yolact(nn.Module):
         '''
 
         self.fpn = FPN([512, 1024, 2048])
-        self.selected_layers = [0, 1, 2, 3, 4]
         # create a ModuleList to match with the original pre-trained weights (original model state_dict)
         self.prediction_layers = nn.ModuleList()
-        self.prediction_layers.append(PredictionModule(in_channels=256, coef_dim=coef_dim))
+        self.prediction_layers.append(PredictionModule(cfg, coef_dim=coef_dim))
         '''  
         self.prediction_layers:
         ModuleList(
@@ -222,7 +216,8 @@ class Yolact(nn.Module):
 
     def train(self, mode=True):
         super().train(mode)
-        if cfg.freeze_bn:
+
+        if (not self.cfg.val_mode) and self.cfg.freeze_bn:
             self.freeze_bn()
 
     def freeze_bn(self):
@@ -234,40 +229,35 @@ class Yolact(nn.Module):
                 module.bias.requires_grad = False
 
     def forward(self, x):
-        with timer.env('backbone'):
-            outs = self.backbone(x)
+        outs = self.backbone(x)
+        outs = self.fpn(outs[1:4])
+        '''
+        outs:
+        (n, 3, 550, 550) -> backbone -> (n, 256, 138, 138) -> fpn -> (n, 256, 69, 69) P3
+                                        (n, 512, 69, 69)             (n, 256, 35, 35) P4
+                                        (n, 1024, 35, 35)            (n, 256, 18, 18) P5
+                                        (n, 2048, 18, 18)            (n, 256, 9, 9)   P6
+                                                                     (n, 256, 5, 5)   P7
+        '''
 
-        with timer.env('fpn'):
-            outs = [outs[i] for i in cfg.backbone.selected_layers]
-            outs = self.fpn(outs)
-
-            '''
-            outs:
-            (n, 3, 550, 550) -> backbone -> (n, 256, 138, 138) -> fpn -> (n, 256, 69, 69) P3
-                                            (n, 512, 69, 69)             (n, 256, 35, 35) P4
-                                            (n, 1024, 35, 35)            (n, 256, 18, 18) P5
-                                            (n, 2048, 18, 18)            (n, 256, 9, 9)   P6
-                                                                         (n, 256, 5, 5)   P7
-            '''
         if isinstance(self.anchors, list):
             for i, shape in enumerate([list(aa.shape) for aa in outs]):
-                self.anchors += make_anchors(shape[2], shape[3], cfg.scales[i])
-            self.anchors = torch.Tensor(self.anchors).view(-1, 4)
+                self.anchors += make_anchors(self.cfg, shape[2], shape[3], self.cfg.scales[i])
 
-        with timer.env('proto'):
-            # outs[0]: [2, 256, 69, 69], the feature map from P3
-            proto_out = self.proto_net(outs[0])  # proto_out: (n, 32, 138, 138)
-            proto_out = F.relu(proto_out, inplace=True)
-            proto_out = proto_out.permute(0, 2, 3, 1).contiguous()
+            self.anchors = torch.tensor(self.anchors).reshape(-1, 4)
 
-        with timer.env('pred_heads'):
-            predictions = {'box': [], 'class': [], 'coef': []}
+        # outs[0]: [2, 256, 69, 69], the feature map from P3
+        proto_out = self.proto_net(outs[0])  # proto_out: (n, 32, 138, 138)
+        proto_out = F.relu(proto_out, inplace=True)
+        proto_out = proto_out.permute(0, 2, 3, 1).contiguous()
 
-            for i in self.selected_layers:  # self.selected_layers [0, 1, 2, 3, 4]
-                p = self.prediction_layers[0](outs[i])
+        predictions = {'box': [], 'class': [], 'coef': []}
 
-                for k, v in p.items():
-                    predictions[k].append(v)
+        for aa in outs:
+            p = self.prediction_layers[0](aa)
+
+            for k, v in p.items():
+                predictions[k].append(v)
 
         for k, v in predictions.items():
             predictions[k] = torch.cat(v, -2)
@@ -276,7 +266,7 @@ class Yolact(nn.Module):
         predictions['anchors'] = self.anchors
 
         if self.training:
-            if cfg.train_semantic:  # True
+            if self.cfg.train_semantic:  # True
                 predictions['segm'] = self.semantic_seg_conv(outs[0])
             return predictions
 

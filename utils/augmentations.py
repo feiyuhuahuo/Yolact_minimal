@@ -3,7 +3,6 @@ import cv2
 import numpy as np
 from numpy import random
 import torch.nn.functional as F
-from data.config import cfg, MEANS, STD
 
 
 def intersect(box_a, box_b):
@@ -24,7 +23,7 @@ def jaccard_numpy(box_a, box_b):
     return inter / union  # [A,B]
 
 
-class Compose(object):
+class Compose:
     """Composes several augmentations together.
     Args:
         transforms (List[Transform]): list of transforms to compose.
@@ -39,12 +38,12 @@ class Compose(object):
         return img, masks, boxes, labels
 
 
-class ConvertFromInts(object):
+class ConvertFromInts:
     def __call__(self, image, masks=None, boxes=None, labels=None):
         return image.astype(np.float32), masks, boxes, labels
 
 
-class ToAbsoluteCoords(object):
+class ToAbsoluteCoords:
     def __call__(self, image, masks=None, boxes=None, labels=None):
         height, width, channels = image.shape
         boxes[:, 0] *= width
@@ -55,7 +54,7 @@ class ToAbsoluteCoords(object):
         return image, masks, boxes, labels
 
 
-class ToPercentCoords(object):
+class ToPercentCoords:
     def __call__(self, image, masks=None, boxes=None, labels=None):
         height, width, channels = image.shape
         boxes[:, 0] /= width
@@ -66,7 +65,7 @@ class ToPercentCoords(object):
         return image, masks, boxes, labels
 
 
-class Pad(object):
+class Pad:
     """
     Pads the image to the input width and height, filling the
     background with mean and putting the image in the top-left.
@@ -83,7 +82,7 @@ class Pad(object):
         im_h, im_w, depth = image.shape
 
         expand_image = np.zeros((self.height, self.width, depth), dtype=image.dtype)
-        expand_image[:, :, :] = MEANS
+        expand_image[:, :, :] = np.array([103.94, 116.78, 123.68])
         expand_image[:im_h, :im_w] = image
 
         if self.pad_gt:
@@ -94,16 +93,16 @@ class Pad(object):
         return expand_image, masks, boxes, labels
 
 
-class Resize(object):
+class Resize:
     """
     The same resizing scheme as used in faster R-CNN https://arxiv.org/pdf/1506.01497.pdf
     We resize the image so that the shorter side is min_size.
     If the longer side is then over img_size, we instead resize the image so the long side is img_size.
     """
 
-    def __init__(self, resize_gt=True):
+    def __init__(self, img_size, resize_gt=True):
         self.resize_gt = resize_gt
-        self.img_size = cfg.img_size
+        self.img_size = img_size
 
     def __call__(self, image, masks, boxes, labels=None):
         img_h, img_w, _ = image.shape
@@ -128,7 +127,7 @@ class Resize(object):
         return image, masks, boxes, labels
 
 
-class RandomSaturation(object):
+class RandomSaturation:
     def __init__(self, lower=0.5, upper=1.5):
         self.lower = lower
         self.upper = upper
@@ -142,7 +141,7 @@ class RandomSaturation(object):
         return image, masks, boxes, labels
 
 
-class RandomHue(object):
+class RandomHue:
     def __init__(self, delta=18.0):
         assert 0.0 <= delta <= 360.0
         self.delta = delta
@@ -155,7 +154,7 @@ class RandomHue(object):
         return image, masks, boxes, labels
 
 
-class RandomLightingNoise(object):
+class RandomLightingNoise:
     def __init__(self):
         self.perms = ((0, 1, 2), (0, 2, 1),
                       (1, 0, 2), (1, 2, 0),
@@ -165,7 +164,7 @@ class RandomLightingNoise(object):
         return image, masks, boxes, labels
 
 
-class ConvertColor(object):
+class ConvertColor:
     def __init__(self, current='BGR', transform='HSV'):
         self.transform = transform
         self.current = current
@@ -180,7 +179,7 @@ class ConvertColor(object):
         return image, masks, boxes, labels
 
 
-class RandomContrast(object):
+class RandomContrast:
     def __init__(self, lower=0.5, upper=1.5):
         self.lower = lower
         self.upper = upper
@@ -195,7 +194,7 @@ class RandomContrast(object):
         return image, masks, boxes, labels
 
 
-class RandomBrightness(object):
+class RandomBrightness:
     def __init__(self, delta=32):
         assert delta >= 0.0
         assert delta <= 255.0
@@ -208,17 +207,17 @@ class RandomBrightness(object):
         return image, masks, boxes, labels
 
 
-class ToCV2Image(object):
+class ToCV2Image:
     def __call__(self, tensor, masks=None, boxes=None, labels=None):
         return tensor.cpu().numpy().astype(np.float32).transpose((1, 2, 0)), masks, boxes, labels
 
 
-class ToTensor(object):
+class ToTensor:
     def __call__(self, cvimage, masks=None, boxes=None, labels=None):
         return torch.from_numpy(cvimage.astype(np.float32)).permute(2, 0, 1), masks, boxes, labels
 
 
-class RandomSampleCrop(object):
+class RandomSampleCrop:
     # Potentialy sample a random crop from the image and put it in a random place
     """Crop
     Arguments:
@@ -344,7 +343,7 @@ class RandomSampleCrop(object):
                 return current_image, current_masks, current_boxes, current_labels
 
 
-class Expand(object):
+class Expand:
     # Have a chance to scale down the image and pad (to emulate smaller detections)
     def __init__(self):
         pass
@@ -359,7 +358,7 @@ class Expand(object):
         top = random.uniform(0, height * ratio - height)
 
         expand_image = np.zeros((int(height * ratio), int(width * ratio), depth), dtype=image.dtype)
-        expand_image[:, :, :] = MEANS
+        expand_image[:, :, :] = np.array([103.94, 116.78, 123.68])
         expand_image[int(top):int(top + height), int(left):int(left + width)] = image
         image = expand_image
 
@@ -374,7 +373,7 @@ class Expand(object):
         return image, masks, boxes, labels
 
 
-class RandomMirror(object):
+class RandomMirror:
     # Mirror the image with a probability of 1/2
     def __call__(self, image, masks, boxes, labels):
         _, width, _ = image.shape
@@ -386,7 +385,7 @@ class RandomMirror(object):
         return image, masks, boxes, labels
 
 
-class PhotometricDistort(object):
+class PhotometricDistort:
     # Randomize hue, vibrance, etc.
     def __init__(self):
         self.pd = [RandomContrast(),
@@ -410,100 +409,64 @@ class PhotometricDistort(object):
         return self.rand_light_noise(im, masks, boxes, labels)
 
 
-class BackboneTransform(object):
-    """
-    Transforms a BRG image made of floats in the range [0, 255] to whatever
-    input the current backbone network needs.
-    """
-
-    def __init__(self, in_channel_order):
-        self.mean = np.array(MEANS, dtype=np.float32)
-        self.std = np.array(STD, dtype=np.float32)
-        self.transform = cfg.backbone.transform
-
-        # Here I use "Algorithms and Coding" to convert string permutations to numbers
-        self.channel_map = {c: idx for idx, c in enumerate(in_channel_order)}
-        self.channel_permutation = [self.channel_map[c] for c in self.transform.channel_order]
+class NormalizeAndToRGB:
+    def __init__(self):
+        self.mean = np.array([103.94, 116.78, 123.68], dtype=np.float32)
+        self.std = np.array([57.38, 57.12, 58.40], dtype=np.float32)
 
     def __call__(self, img, masks=None, boxes=None, labels=None):
-
         img = img.astype(np.float32)
-
-        if self.transform.normalize:
-            img = (img - self.mean) / self.std
-        elif self.transform.subtract_means:
-            img = (img - self.mean)
-        elif self.transform.to_float:
-            img = img / 255
-
-        img = img[:, :, self.channel_permutation]
+        img = (img - self.mean) / self.std
+        img = img[:, :, (2, 1, 0)]
 
         return img.astype(np.float32), masks, boxes, labels
 
 
-class BaseTransform(object):
-    """ Transorm to be used when evaluating. """
-
-    def __init__(self):
+class ValAug:
+    def __init__(self, cfg):
         self.augment = Compose([ConvertFromInts(),
-                                Resize(resize_gt=False),
+                                Resize(cfg.img_size, resize_gt=False),
                                 Pad(cfg.img_size, cfg.img_size, pad_gt=False),
-                                BackboneTransform('BGR')])
+                                NormalizeAndToRGB()])
 
     def __call__(self, img, masks=None, boxes=None, labels=None):
         return self.augment(img, masks, boxes, labels)
 
 
-class FastBaseTransform(torch.nn.Module):
-    """
-    Transform that does all operations on the GPU for super speed.
-    This doesn't suppport a lot of config settings and should only be used for production.
-    Maintain this as necessary.
-    """
+class TensorTransform:
+    # Transform that use tensors and does all operations on the GPU for super speed.
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, img_size):
+        self.img_size = img_size
+        self.mean = torch.tensor([103.94, 116.78, 123.68]).float()[None, :, None, None]
+        self.std = torch.tensor([57.38, 57.12, 58.40]).float()[None, :, None, None]
 
-        self.mean = torch.Tensor(MEANS).float()[None, :, None, None]
-        self.std = torch.Tensor(STD).float()[None, :, None, None]
-        self.transform = cfg.backbone.transform
-
-    def forward(self, img):
+    def __call__(self, img):
         self.mean = self.mean.to(img.device)
         self.std = self.std.to(img.device)
 
         # img assumed to be a pytorch BGR image with channel order [n, h, w, c]
         img = img.permute(0, 3, 1, 2).contiguous()
-        img = F.interpolate(img, (cfg.img_size, cfg.img_size), mode='bilinear', align_corners=False)
+        img = F.interpolate(img, (self.img_size, self.img_size), mode='bilinear', align_corners=False)
 
-        if self.transform.normalize:
-            img = (img - self.mean) / self.std
-        elif self.transform.subtract_means:
-            img = (img - self.mean)
-        elif self.transform.to_float:
-            img = img / 255
-
-        if self.transform.channel_order != 'RGB':
-            raise NotImplementedError
-
+        img = (img - self.mean) / self.std
         img = img[:, (2, 1, 0), :, :].contiguous()
 
-        # Return value is in channel order [n, c, h, w] and RGB
-        return img
+        return img  # Return value is in channel order [n, c, h, w] and RGB
 
 
-class SSDAugmentation(object):
-    def __init__(self):
+class TrainAug:
+    def __init__(self, cfg):
         self.augment = Compose([ConvertFromInts(),
                                 ToAbsoluteCoords(),
                                 PhotometricDistort(),
                                 Expand(),
                                 RandomSampleCrop(),
                                 RandomMirror(),
-                                Resize(),
+                                Resize(cfg.img_size),
                                 Pad(cfg.img_size, cfg.img_size),
                                 ToPercentCoords(),
-                                BackboneTransform('BGR')])
+                                NormalizeAndToRGB()])
 
     def __call__(self, img, masks, boxes, labels):
         return self.augment(img, masks, boxes, labels)

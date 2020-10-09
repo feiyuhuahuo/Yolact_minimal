@@ -118,11 +118,18 @@ class ResNetBackbone(nn.Module):
         self._make_layer(block, conv_channels // block.expansion, blocks=depth, stride=downsample)
 
 
-def construct_backbone(cfg_backbone):
-    backbone = cfg_backbone.type(*cfg_backbone.args)
+def construct_backbone(cfg_name, selected_layers):
+    if '101' in cfg_name:
+        layers = [3, 4, 23, 3]
+    elif '50' in cfg_name:
+        layers = [3, 4, 6, 3]
+    else:
+        raise ValueError('Undefined cfg.')
+
+    backbone = ResNetBackbone(layers=layers)
 
     # Add downsampling layers until we reach the number we need
-    num_layers = max(cfg_backbone.selected_layers) + 1
+    num_layers = max(selected_layers) + 1
 
     while len(backbone.layers) < num_layers:
         backbone.add_layer()

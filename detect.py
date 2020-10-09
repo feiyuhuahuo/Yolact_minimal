@@ -8,13 +8,13 @@ import cv2
 import time
 
 from modules.build_yolact import Yolact
-from utils.augmentations import FastBaseTransform
-from utils.functions import MovingAverage, ProgressBar
-from data.config import update_config
-from utils.output_utils import NMS, after_nms, draw_img
+from utils.augmentations import TensorTransform
+from utils.functions import ProgressBar
+from data.config import get_config
+from utils.output_utils import nms, after_nms, draw_img
 
 parser = argparse.ArgumentParser(description='YOLACT COCO Evaluation')
-parser.add_argument('--trained_model', default='weights/yolact_base_54_800000.pth', type=str)
+parser.add_argument('--trained_model', default='weights/res101_coco_800000.pth', type=str)
 parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
 parser.add_argument('--hide_mask', default=False, action='store_true', help='Whether to display masks')
 parser.add_argument('--hide_bbox', default=False, action='store_true', help='Whether to display bboxes')
@@ -32,11 +32,7 @@ parser.add_argument('--visual_thre', default=0.3, type=float,
                     help='Detections with a score under this threshold will be removed.')
 
 args = parser.parse_args()
-strs = args.trained_model.split('_')
-config = f'{strs[-3]}_{strs[-2]}_config'
-
-update_config(config)
-print(f'\nUsing \'{config}\' according to the trained_model.\n')
+cfg = get_config(args)
 
 with torch.no_grad():
     cuda = torch.cuda.is_available()
@@ -47,7 +43,7 @@ with torch.no_grad():
     else:
         torch.set_default_tensor_type('torch.FloatTensor')
 
-    net = Yolact()
+    net = Yolact(cfg)
     net.load_weights('weights/' + args.trained_model, cuda)
     net.eval()
     print('Model loaded.\n')
@@ -63,13 +59,14 @@ with torch.no_grad():
             img_name = one_img.split('/')[-1]
             img_origin = cv2.imread(one_img)
             img_tensor = torch.from_numpy(img_origin).float()
+
             if cuda:
                 img_tensor = img_tensor.cuda()
             img_h, img_w = img_tensor.shape[0], img_tensor.shape[1]
-            img_trans = FastBaseTransform()(img_tensor.unsqueeze(0))
+            img_trans = TensorTransform(cfg.img_size)(img_tensor.unsqueeze(0))
 
             net_outs = net(img_trans)
-            nms_outs = NMS(net_outs, args.traditional_nms)
+            nms_outs = nms(net_outs, args.traditional_nms)
 
             show_lincomb = bool(args.show_lincomb and args.image_path)
             results = after_nms(nms_outs, img_h, img_w, show_lincomb=show_lincomb, crop_masks=not args.no_crop,
@@ -94,7 +91,6 @@ with torch.no_grad():
         video_writer = cv2.VideoWriter(f'results/videos/{name}', cv2.VideoWriter_fourcc(*"mp4v"), target_fps,
                                        (frame_width, frame_height))
 
-        frame_times = MovingAverage()
         progress_bar = ProgressBar(40, num_frames)
 
         time_here = 0
@@ -104,13 +100,11 @@ with torch.no_grad():
             if cuda:
                 frame_origin = frame_origin.cuda()
             img_h, img_w = frame_origin.shape[0], frame_origin.shape[1]
-            frame_trans = FastBaseTransform()(frame_origin.unsqueeze(0))
+            frame_trans = TensorTransform(cfg.img_size)(frame_origin.unsqueeze(0))
             net_outs = net(frame_trans)
-            nms_outs = NMS(net_outs, args.traditional_nms)
+            nms_outs = nms(net_outs, args.traditional_nms)
             results = after_nms(nms_outs, img_h, img_w, crop_masks=not args.no_crop, visual_thre=args.visual_thre)
 
-            if cuda:
-                torch.cuda.synchronize()
             temp = time_here
             time_here = time.time()
 
@@ -127,7 +121,7 @@ with torch.no_grad():
                 video_writer.write(frame_numpy)
 
             progress = (i + 1) / num_frames * 100
-            progress_bar.set_val(i + 1)
+            progress_bar.get_bar(i + 1)
             print(f'\rDetecting: {repr(progress_bar)} {i + 1} / {num_frames} ({progress:.2f}%) {fps:.2f} fps', end='')
 
         if not args.real_time:

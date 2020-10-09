@@ -1,6 +1,8 @@
 import json
+import re
 import numpy as np
 import torch
+import time
 import pycocotools
 import argparse
 from pycocotools.coco import COCO
@@ -11,19 +13,19 @@ import torch.backends.cudnn as cudnn
 
 from data.coco import COCODetection
 from modules.build_yolact import Yolact
-from utils.augmentations import BaseTransform
-from utils.functions import MovingAverage, ProgressBar
+from utils.functions import ProgressBar
 from utils.box_utils import bbox_iou, mask_iou
 from utils import timer
-from utils.output_utils import after_nms, NMS
-from data.config import cfg, update_config, COCO_LABEL_MAP
+from utils.output_utils import after_nms, nms
+from data.config import get_config, COCO_LABEL_MAP
 
 parser = argparse.ArgumentParser(description='YOLACT COCO Evaluation')
-parser.add_argument('--trained_model', default='yolact_base_54_800000.pth', type=str)
-parser.add_argument('--visual_top_k', default=5, type=int, help='Further restrict the number of predictions to parse')
+parser.add_argument('--gpu_id', default='0', type=str, help='The GPUs to use.')
+parser.add_argument('--img_size', type=int, default=550, help='The image size for validation.')
+parser.add_argument('--weight', type=str, default='weights/res101_coco_800000.pth', help='The validation model.')
+parser.add_argument('--test_bs', default='1', type=str, help='Test batch size.')
 parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
-parser.add_argument('--max_num', default=-1, type=int, help='The maximum number of images for test, set to -1 for all.')
-parser.add_argument('--cocoapi', action='store_true', help='Whether to use cocoapi to evaluate results.')
+parser.add_argument('--val_num', default=-1, type=int, help='The number of images for test, set to -1 for all.')
 
 
 class Make_json:
@@ -137,37 +139,34 @@ class APDataObject:
         return sum(y_range) / len(y_range)
 
 
-def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, make_json, cocoapi):
+def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, make_json, cocoapi=False):
     """ Returns a list of APs for this image, with each element being for a class  """
 
-    with timer.env('After NMS'):
-        pred_classes, pred_confs, pred_boxes, pred_masks = after_nms(nms_outs, h, w)
-        if pred_classes.size(0) == 0:
-            return
-
-        pred_classes = list(pred_classes.cpu().numpy().astype(int))
-        pred_confs = list(pred_confs.cpu().numpy().astype(float))
-        pred_masks = pred_masks.view(-1, h * w).cuda() if cuda else pred_masks.view(-1, h * w)
-        pred_boxes = pred_boxes.cuda() if cuda else pred_boxes
-
-    if cocoapi:
-        with timer.env('Output json'):
-            pred_boxes = pred_boxes.cpu().numpy()
-            pred_masks = pred_masks.view(-1, h, w).cpu().numpy()
-
-            for i in range(pred_masks.shape[0]):
-                # Make sure that the bounding box actually makes sense and a mask was produced
-                if (pred_boxes[i, 3] - pred_boxes[i, 1]) * (pred_boxes[i, 2] - pred_boxes[i, 0]) > 0:
-                    make_json.add_bbox(image_id, pred_classes[i], pred_boxes[i, :], pred_confs[i])
-                    make_json.add_mask(image_id, pred_classes[i], pred_masks[i, :, :], pred_confs[i])
+    pred_classes, pred_confs, pred_boxes, pred_masks = after_nms(nms_outs, h, w)
+    if pred_classes.size(0) == 0:
         return
 
-    with timer.env('Prepare gt'):
-        gt_boxes = torch.Tensor(gt[:, :4])
+    pred_classes = list(pred_classes.cpu().numpy().astype(int))
+    pred_confs = list(pred_confs.cpu().numpy().astype(float))
+    pred_masks = pred_masks.reshape(-1, h * w).cuda() if cuda else pred_masks.reshape(-1, h * w)
+    pred_boxes = pred_boxes.cuda() if cuda else pred_boxes
+
+    if cocoapi:
+        pred_boxes = pred_boxes.cpu().numpy()
+        pred_masks = pred_masks.reshape(-1, h, w).cpu().numpy()
+
+        for i in range(pred_masks.shape[0]):
+            # Make sure that the bounding box actually makes sense and a mask was produced
+            if (pred_boxes[i, 3] - pred_boxes[i, 1]) * (pred_boxes[i, 2] - pred_boxes[i, 0]) > 0:
+                make_json.add_bbox(image_id, pred_classes[i], pred_boxes[i, :], pred_confs[i])
+                make_json.add_mask(image_id, pred_classes[i], pred_masks[i, :, :], pred_confs[i])
+
+    else:
+        gt_boxes = torch.tensor(gt[:, :4])
         gt_boxes[:, [0, 2]] *= w
         gt_boxes[:, [1, 3]] *= h
         gt_classes = list(gt[:, 4].astype(int))
-        gt_masks = torch.Tensor(gt_masks).view(-1, h * w)
+        gt_masks = torch.tensor(gt_masks, dtype=torch.float32).reshape(-1, h * w)
 
         if num_crowd > 0:
             split = lambda x: (x[-num_crowd:], x[:-num_crowd])
@@ -175,7 +174,6 @@ def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, mak
             crowd_masks, gt_masks = split(gt_masks)
             crowd_classes, gt_classes = split(gt_classes)
 
-    with timer.env('Eval Setup'):
         mask_iou_cache = mask_iou(pred_masks, gt_masks)
         bbox_iou_cache = bbox_iou(pred_boxes.float(), gt_boxes.float())
 
@@ -189,65 +187,63 @@ def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, mak
         iou_types = [('box', lambda i, j: bbox_iou_cache[i, j].item(), lambda i, j: crowd_bbox_iou_cache[i, j].item()),
                      ('mask', lambda i, j: mask_iou_cache[i, j].item(), lambda i, j: crowd_mask_iou_cache[i, j].item())]
 
-    timer.start('Main loop')
-    for _class in set(pred_classes + gt_classes):
-        num_gt_per_class = gt_classes.count(_class)
+        for _class in set(pred_classes + gt_classes):
+            num_gt_per_class = gt_classes.count(_class)
 
-        for iouIdx in range(len(iou_thresholds)):
-            iou_threshold = iou_thresholds[iouIdx]
+            for iouIdx in range(len(iou_thresholds)):
+                iou_threshold = iou_thresholds[iouIdx]
 
-            for iou_type, iou_func, crowd_func in iou_types:
-                gt_used = [False] * len(gt_classes)
-                ap_obj = ap_data[iou_type][iouIdx][_class]
-                ap_obj.add_gt_positives(num_gt_per_class)
+                for iou_type, iou_func, crowd_func in iou_types:
+                    gt_used = [False] * len(gt_classes)
+                    ap_obj = ap_data[iou_type][iouIdx][_class]
+                    ap_obj.add_gt_positives(num_gt_per_class)
 
-                for i, pred_class in enumerate(pred_classes):
-                    if pred_class != _class:
-                        continue
-
-                    max_iou_found = iou_threshold
-                    max_match_idx = -1
-                    for j, gt_class in enumerate(gt_classes):
-                        if gt_used[j] or gt_class != _class:
+                    for i, pred_class in enumerate(pred_classes):
+                        if pred_class != _class:
                             continue
 
-                        iou = iou_func(i, j)
+                        max_iou_found = iou_threshold
+                        max_match_idx = -1
+                        for j, gt_class in enumerate(gt_classes):
+                            if gt_used[j] or gt_class != _class:
+                                continue
 
-                        if iou > max_iou_found:
-                            max_iou_found = iou
-                            max_match_idx = j
+                            iou = iou_func(i, j)
 
-                    if max_match_idx >= 0:
-                        gt_used[max_match_idx] = True
-                        ap_obj.push(pred_confs[i], True)
-                    else:
-                        # If the detection matches a crowd, we can just ignore it
-                        matched_crowd = False
+                            if iou > max_iou_found:
+                                max_iou_found = iou
+                                max_match_idx = j
 
-                        if num_crowd > 0:
-                            for j in range(len(crowd_classes)):
-                                if crowd_classes[j] != _class:
-                                    continue
+                        if max_match_idx >= 0:
+                            gt_used[max_match_idx] = True
+                            ap_obj.push(pred_confs[i], True)
+                        else:
+                            # If the detection matches a crowd, we can just ignore it
+                            matched_crowd = False
 
-                                iou = crowd_func(i, j)
+                            if num_crowd > 0:
+                                for j in range(len(crowd_classes)):
+                                    if crowd_classes[j] != _class:
+                                        continue
 
-                                if iou > iou_threshold:
-                                    matched_crowd = True
-                                    break
+                                    iou = crowd_func(i, j)
 
-                        # All this crowd code so that we can make sure that our eval code gives the
-                        # same result as COCOEval. There aren't even that many crowd annotations to
-                        # begin with, but accuracy is of the utmost importance.
-                        if not matched_crowd:
-                            ap_obj.push(pred_confs[i], False)
-    timer.stop('Main loop')
+                                    if iou > iou_threshold:
+                                        matched_crowd = True
+                                        break
+
+                            # All this crowd code so that we can make sure that our eval code gives the
+                            # same result as COCOEval. There aren't even that many crowd annotations to
+                            # begin with, but accuracy is of the utmost importance.
+                            if not matched_crowd:
+                                ap_obj.push(pred_confs[i], False)
 
 
 def calc_map(ap_data):
     print('\nCalculating mAP...')
     aps = [{'box': [], 'mask': []} for _ in iou_thresholds]
 
-    for _class in range(len(cfg.dataset.class_names)):
+    for _class in range(len(cfg.class_names)):
         for iou_idx in range(len(iou_thresholds)):
             for iou_type in ('box', 'mask'):
                 ap_obj = ap_data[iou_type][iou_idx][_class]
@@ -280,68 +276,72 @@ def calc_map(ap_data):
     return table.table, row2, row3
 
 
-def evaluate(net, dataset, max_num=-1, during_training=False, cocoapi=False, traditional_nms=False):
-    frame_times = MovingAverage()
-    dataset_size = len(dataset) if max_num < 0 else min(max_num, len(dataset))
+def evaluate(net, cfg, during_training=False, cocoapi=False):
+    dataset = COCODetection(cfg, val=True)
+    ds = len(dataset) if cfg.val_num < 0 else min(cfg.val_num, len(dataset))
     dataset_indices = list(range(len(dataset)))
-    dataset_indices = dataset_indices[:dataset_size]
-    progress_bar = ProgressBar(40, dataset_size)
+    dataset_indices = dataset_indices[:ds]
+    progress_bar = ProgressBar(40, ds)
 
     # For each class and iou, stores tuples (score, isPositive)
     # Index ap_data[type][iouIdx][classIdx]
-    ap_data = {'box': [[APDataObject() for _ in cfg.dataset.class_names] for _ in iou_thresholds],
-               'mask': [[APDataObject() for _ in cfg.dataset.class_names] for _ in iou_thresholds]}
+    ap_data = {'box': [[APDataObject() for _ in cfg.class_names] for _ in iou_thresholds],
+               'mask': [[APDataObject() for _ in cfg.class_names] for _ in iou_thresholds]}
     make_json = Make_json()
+    timer.reset()
 
     for i, image_idx in enumerate(dataset_indices):
-        timer.reset()
+        if i == 1:
+            timer.start()
 
-        with timer.env('Data loading'):
-            img, gt, gt_masks, h, w, num_crowd = dataset.pull_item(image_idx)
+        img, gt, gt_masks, h, w, num_crowd = dataset.pull_item(image_idx)
 
-            batch = img.unsqueeze(0)
-            if cuda:
-                batch = batch.cuda()
+        batch = img.unsqueeze(0)
+        if cuda:
+            batch = batch.cuda()
 
-        with timer.env('Network forward'):
+        with timer.counter('forward'):
             net_outs = net(batch)
-            nms_outs = NMS(net_outs, traditional_nms)
-            prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, dataset.ids[image_idx], make_json, cocoapi)
 
-        # First couple of images take longer because we're constructing the graph.
-        # Since that's technically initialization, don't include those in the FPS calculations.
-        fps = 0
-        if i > 1 and not during_training:
-            frame_times.add(timer.total_time())
-            fps = 1 / frame_times.get_avg()
+        with timer.counter('nms'):
+            nms_outs = nms(cfg, net_outs, cfg.fast_nms)
 
-        progress = (i + 1) / dataset_size * 100
-        progress_bar.set_val(i + 1)
-        print('\rProcessing:  %s  %d / %d (%.2f%%)  %.2f fps  ' % (
-            repr(progress_bar), i + 1, dataset_size, progress, fps), end='')
+        with timer.counter('prep_metrics'):
+            prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, dataset.ids[image_idx], make_json)
 
+        aa = time.perf_counter()
+        if i > 0:
+            batch_time = aa - temp
+            timer.add_batch_time(batch_time)
+
+            t_t, t_d, t_f, t_nms, t_pm = timer.get_times(['batch', 'data', 'forward', 'nms', 'prep_metrics'])
+            fps, t_fps = 1 / (t_d + t_f + t_nms), 1 / t_t
+            bar_str = progress_bar.get_bar(i + 1)
+            print(f'\rTesting: {bar_str} {i + 1}/{ds}, fps: {fps:.2f} | total fps: {t_fps:.2f} | t_t: {t_t:.3f} | '
+                  f't_d: {t_d:.3f} | t_f: {t_f:.3f} | t_nms: {t_nms:.3f} | t_pm: {t_pm:.3f}', end='')
+
+        temp = aa
+
+    if cocoapi:
+        make_json.dump()
+        print(f'\nJson files dumped, saved in: \'results/\', start evaluting.')
+
+        gt_annotations = COCO(cfg.dataset.valid_info)
+        bbox_dets = gt_annotations.loadRes(f'results/bbox_detections.json')
+        mask_dets = gt_annotations.loadRes(f'results/mask_detections.json')
+
+        print('\nEvaluating BBoxes:')
+        bbox_eval = COCOeval(gt_annotations, bbox_dets, 'bbox')
+        bbox_eval.evaluate()
+        bbox_eval.accumulate()
+        bbox_eval.summarize()
+
+        print('\nEvaluating Masks:')
+        bbox_eval = COCOeval(gt_annotations, mask_dets, 'segm')
+        bbox_eval.evaluate()
+        bbox_eval.accumulate()
+        bbox_eval.summarize()
     else:
-        if cocoapi:
-            make_json.dump()
-            print(f'\nJson files dumped, saved in: \'results/\', start evaluting.')
-
-            gt_annotations = COCO(cfg.dataset.valid_info)
-            bbox_dets = gt_annotations.loadRes(f'results/bbox_detections.json')
-            mask_dets = gt_annotations.loadRes(f'results/mask_detections.json')
-
-            print('\nEvaluating BBoxes:')
-            bbox_eval = COCOeval(gt_annotations, bbox_dets, 'bbox')
-            bbox_eval.evaluate()
-            bbox_eval.accumulate()
-            bbox_eval.summarize()
-
-            print('\nEvaluating Masks:')
-            bbox_eval = COCOeval(gt_annotations, mask_dets, 'segm')
-            bbox_eval.evaluate()
-            bbox_eval.accumulate()
-            bbox_eval.summarize()
-            return
-
         table, box_row, mask_row = calc_map(ap_data)
         print(table)
         return table, box_row, mask_row
@@ -352,11 +352,8 @@ cuda = torch.cuda.is_available()
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    strs = args.trained_model.split('_')
-    config = f'{strs[-3]}_{strs[-2]}_config'
-
-    update_config(config)
-    print(f'\nUsing \'{config}\' according to the trained_model.\n')
+    args.cfg = re.findall(r'res.+_[a-z]+', args.weight)[0]
+    cfg = get_config(args, val_mode=True)
 
     with torch.no_grad():
         if cuda:
@@ -366,14 +363,12 @@ if __name__ == '__main__':
         else:
             torch.set_default_tensor_type('torch.FloatTensor')
 
-        dataset = COCODetection(cfg.dataset.valid_images, cfg.dataset.valid_info, augmentation=BaseTransform())
-
-        net = Yolact()
-        net.load_weights('weights/' + args.trained_model, cuda)
+        net = Yolact(cfg)
+        net.load_weights(cfg.weight, cuda)
         net.eval()
         print('\nModel loaded.\n')
 
         if cuda:
             net = net.cuda()
 
-        evaluate(net, dataset, args.max_num, False, args.cocoapi, args.traditional_nms)
+        evaluate(net, cfg, during_training=False)
