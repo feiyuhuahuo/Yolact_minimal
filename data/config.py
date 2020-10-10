@@ -80,8 +80,8 @@ class res101_coco:
             self.bs_per_gpu = args.bs_per_gpu
         self.test_bs = args.test_bs
         if not val_mode:
-            self.train_imgs = self.data_root + 'coco2017/train2017/'
-            self.train_ann = self.data_root + 'coco2017/annotations/instances_train2017.json'
+            self.train_imgs = self.data_root + 'coco2017/val2017/'
+            self.train_ann = self.data_root + 'coco2017/annotations/instances_val2017.json'
         self.val_imgs = self.data_root + 'coco2017/val2017/'
         self.val_ann = self.data_root + 'coco2017/annotations/instances_val2017.json'
         self.val_num = args.val_num
@@ -92,12 +92,13 @@ class res101_coco:
         self.continuous_id = COCO_LABEL_MAP
 
         if not val_mode:
+            self.val_interval = args.val_interval
             self.weight = args.resume if args.resume else 'weights/resnet101_reducedfc.pth'
             self.pos_iou_thre = 0.5
             self.neg_iou_thre = 0.4
             # If less than 1, anchors treated as a negative that have a crowd iou over this threshold with
             # the crowd boxes will be treated as a neutral.
-            self.crowd_iou_threshold = 0.7
+            self.crowd_iou_thre = 0.7
 
             self.conf_alpha = 1
             self.bbox_alpha = 1.5
@@ -127,7 +128,7 @@ class res101_coco:
         # Whether to train the semantic segmentations branch, this branch is only implemented during training.
         self.train_semantic = True
 
-        self.fast_nms = True
+        self.traditional_nms = args.traditional_nms
         self.nms_score_thre = 0.05
         self.nms_iou_thre = 0.5
         self.top_k = 200

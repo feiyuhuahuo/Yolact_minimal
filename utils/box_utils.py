@@ -4,11 +4,6 @@ from itertools import product
 from math import sqrt
 
 
-def center_size(boxes):
-    """ Convert prior_boxes to format: (cx, cy, w, h)."""
-    return torch.cat(((boxes[:, 2:] + boxes[:, :2]) / 2, boxes[:, 2:] - boxes[:, :2]), 1)
-
-
 def intersect(box_a, box_b):
     """
     We resize both tensors to [A,B,2] without new malloc:
@@ -81,17 +76,17 @@ def match(cfg, box_gt, priors, class_gt, crowd_boxes):
     each_prior_box = box_gt[each_prior_index]  # size: [num_priors, 4]
     conf = class_gt[each_prior_index] + 1  # the class of the max IoU gt box for each prior, size: [num_priors]
 
-    conf[each_prior_max < cfg.pos_thresh] = -1  # label as neutral
-    conf[each_prior_max < cfg.neg_thresh] = 0  # label as background
+    conf[each_prior_max < cfg.pos_iou_thre] = -1  # label as neutral
+    conf[each_prior_max < cfg.neg_iou_thre] = 0  # label as background
 
     # Deal with crowd annotations for COCO
-    if crowd_boxes is not None and cfg.crowd_iou_threshold < 1:
+    if crowd_boxes is not None and cfg.crowd_iou_thre < 1:
         # Size [num_priors, num_crowds]
         crowd_overlaps = jaccard(decoded_priors, crowd_boxes, iscrowd=True)
         # Size [num_priors]
         best_crowd_overlap, best_crowd_idx = crowd_overlaps.max(1)
         # Set non-positives with crowd iou of over the threshold to be neutral.
-        conf[(conf <= 0) & (best_crowd_overlap > cfg.crowd_iou_threshold)] = -1
+        conf[(conf <= 0) & (best_crowd_overlap > cfg.crowd_iou_thre)] = -1
 
     offsets = encode(each_prior_box, priors)
 

@@ -34,6 +34,7 @@ ImageNet pre-trained weights.
 
 
 ## Train
+python setup.py build_ext --inplace
 Note: this project may not support multi-GPU training well. Due to the lack of device resource, I can't check this at present.
 ```Shell
 # Train with resnet101 backbone on coco2017 with a batch size of 8 (default).

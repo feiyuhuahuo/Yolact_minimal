@@ -304,7 +304,7 @@ def evaluate(net, cfg, during_training=False, cocoapi=False):
             net_outs = net(batch)
 
         with timer.counter('nms'):
-            nms_outs = nms(cfg, net_outs, cfg.fast_nms)
+            nms_outs = nms(cfg, net_outs, cfg.traditional_nms)
 
         with timer.counter('prep_metrics'):
             prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, dataset.ids[image_idx], make_json)
@@ -366,7 +366,7 @@ if __name__ == '__main__':
         net = Yolact(cfg)
         net.load_weights(cfg.weight, cuda)
         net.eval()
-        print('\nModel loaded.\n')
+        print(f'Model loaded with {cfg.weight}.\n')
 
         if cuda:
             net = net.cuda()

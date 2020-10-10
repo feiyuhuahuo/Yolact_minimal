@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-from utils.box_utils import match, center_size, crop
+from utils.box_utils import match, crop
 
 
 class Multi_Loss(nn.Module):
@@ -87,10 +87,8 @@ class Multi_Loss(nn.Module):
 
             mask_loss = F.binary_cross_entropy(torch.clamp(mask_p, 0, 1), pos_mask_gt, reduction='none')
             # Normalize the mask loss to emulate roi pooling's effect on loss.
-            pos_get_csize = center_size(pos_prior_box)
             prior_area = (pos_prior_box[:, 2] - pos_prior_box[:, 0]) * (pos_prior_box[:, 3] - pos_prior_box[:, 1])
-
-            mask_loss = mask_loss.sum(dim=(0, 1)) / pos_get_csize[:, 2] / pos_get_csize[:, 3]
+            mask_loss = mask_loss.sum(dim=(0, 1)) / prior_area
 
             if old_num_pos > num_pos:
                 mask_loss *= old_num_pos / num_pos

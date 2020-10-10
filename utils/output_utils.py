@@ -1,14 +1,10 @@
 import torch.nn.functional as F
 import cv2
-from utils.box_utils import crop, sanitize_coordinates
+from utils.box_utils import crop, sanitize_coordinates, decode, jaccard
 import torch
-from utils.box_utils import decode, jaccard
 import numpy as np
-import pyximport
 from data.config import COLORS
-
-pyximport.install(setup_args={"include_dirs": np.get_include()}, reload_support=True)
-from utils.cython_nms import nms as cnms
+from build_stuff.cython_nms import nms as cnms
 
 
 def fast_nms(box_thre, coef_thre, class_thre, cfg, second_threshold=False):
@@ -59,7 +55,7 @@ def fast_nms(box_thre, coef_thre, class_thre, cfg, second_threshold=False):
     return box_nms, coef_nms, class_ids, class_nms
 
 
-def traditional_nms(boxes, masks, scores, cfg):
+def tradi_nms(boxes, masks, scores, cfg):
     num_classes = scores.size(0)
 
     idx_lst = []
@@ -103,7 +99,7 @@ def traditional_nms(boxes, masks, scores, cfg):
     return boxes[idx] / cfg.img_size, masks[idx], class_ids, scores
 
 
-def nms(cfg, net_outs, use_fast_nms=True):
+def nms(cfg, net_outs, traditional_nms=False):
     box_p = net_outs['box'].squeeze()  # [19248, 4]
     class_p = net_outs['class'].squeeze()  # [19248, 81]
     coef_p = net_outs['coef'].squeeze()  # [19248, 32]
@@ -127,10 +123,10 @@ def nms(cfg, net_outs, use_fast_nms=True):
     if class_thre.size(1) == 0:
         result = None
     else:
-        if use_fast_nms:
+        if not traditional_nms:
             box_thre, coef_thre, class_ids, class_thre = fast_nms(box_thre, coef_thre, class_thre, cfg)
         else:
-            box_thre, coef_thre, class_ids, class_thre = traditional_nms(box_thre, coef_thre, class_thre, cfg)
+            box_thre, coef_thre, class_ids, class_thre = tradi_nms(box_thre, coef_thre, class_thre, cfg)
 
         result = {'box': box_thre, 'coef': coef_thre, 'class_ids': class_ids, 'class': class_thre}
 

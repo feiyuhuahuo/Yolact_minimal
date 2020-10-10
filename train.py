@@ -5,6 +5,7 @@ import torch.optim as optim
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data.distributed import DistributedSampler
 import torch.utils.data as data
 from tensorboardX import SummaryWriter
 import argparse
@@ -12,7 +13,6 @@ import datetime
 import os
 import glob
 
-from utils.augmentations import TrainAug, ValAug
 from utils import timer
 from modules.build_yolact import Yolact
 from modules.multi_loss import Multi_Loss
@@ -28,9 +28,10 @@ parser.add_argument('--train_bs', type=int, default=8, help='total training batc
 parser.add_argument('--test_bs', type=int, default=1, help='-1 to disable val')
 parser.add_argument('--img_size', default=550, type=int, help='The image size for training.')
 parser.add_argument('--resume', default=None, type=str, help='The path of the weight file to resume training with.')
-parser.add_argument('--val_interval', default=10000, type=int,
-                    help='Evaluate and save the model every [val_interval] iterations, pass -1 to disable.')
+parser.add_argument('--val_interval', default=2000, type=int,
+                    help='The validation interval during training, pass -1 to disable.')
 parser.add_argument('--val_num', default=-1, type=int, help='The number of images for test, set to -1 for all.')
+parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
 
 
 def set_lr(optimizer, new_lr):
@@ -89,8 +90,7 @@ class NetWithLoss(nn.Module):
 
     def forward(self, images, box_classes, masks_gt, num_crowds):
         predictions = self.net(images)
-        loss_b, loss_m, loss_c, loss_s = self.loss(predictions, box_classes, masks_gt, num_crowds)
-        return loss_b, loss_m, loss_c, loss_s
+        return self.loss(predictions, box_classes, masks_gt, num_crowds)
 
 
 args = parser.parse_args()
@@ -120,21 +120,23 @@ elif args.resume and 'yolact' in args.resume:
     print(f'\nResume training with \'{args.resume}\'.\n')
 else:
     net.init_weights(cfg.weight)
-    print(f'\nTraining from begining, weights initialized with weights/{cfg.weight}.\n')
+    print(f'\nTraining from begining, weights initialized with {cfg.weight}.\n')
     start_step = 0
 
+dataset = COCODetection(cfg, val=False)
+train_sampler = None
 if cuda:
     cudnn.benchmark = True
     net_with_loss = NetWithLoss(net, criterion)
-    net = DDP(net.cuda(), device_ids=[args.local_rank], output_device=args.local_rank, broadcast_buffers=True)
+    net = DDP(net_with_loss.cuda(), [args.local_rank], output_device=args.local_rank, broadcast_buffers=True)
+    train_sampler = DistributedSampler(dataset, shuffle=True)
 
-dataset = COCODetection(cfg, val=False)
-
-data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=6, shuffle=True,
-                              collate_fn=detection_collate, pin_memory=True)
+# shuffle must be False if sampler is specified
+data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=6, shuffle=(train_sampler is None),
+                              collate_fn=detection_collate, pin_memory=True, sampler=train_sampler)
 
 step_index = 0
-loss_types = ['B', 'C', 'M', 'S']
+epoch_seed = 0
 map_tables = []
 training = True
 step = start_step
@@ -143,6 +145,10 @@ writer = SummaryWriter('tensorboard_log')
 
 try:  # Use try-except to use ctrl+c to stop and save early.
     while training:
+        if train_sampler:
+            epoch_seed += 1
+            train_sampler.set_epoch(epoch_seed)
+
         for i, datum in enumerate(data_loader):
             if ((not cuda) or main_gpu) and i == start_step + 1:
                 timer.start()
@@ -158,19 +164,19 @@ try:  # Use try-except to use ctrl+c to stop and save early.
             images, box_classes, masks_gt, num_crowds = data_to_device(datum)
 
             with timer.counter('for+loss'):
-                l_b, l_m, l_c, l_s = net(images)
+                loss_b, loss_m, loss_c, loss_s = net(images, box_classes, masks_gt, num_crowds)
 
                 if main_gpu:  # get the mean loss across all GPUS, this is for printing
-                    all_loss = torch.stack([l_b, l_m, l_c, l_s], dim=0)
+                    all_loss = torch.stack([loss_b, loss_m, loss_c, loss_s], dim=0)
                     dist.reduce(all_loss, dst=0)
 
                     l_b = all_loss[0].item() / num_gpu  # seems when printing, need to call .item(), not sure
                     l_m = all_loss[1].item() / num_gpu
                     l_c = all_loss[2].item() / num_gpu
-                    l_s = all_loss[2].item() / num_gpu
+                    l_s = all_loss[3].item() / num_gpu
 
             with timer.counter('backward'):
-                loss_total = l_b + l_m + l_c + l_s
+                loss_total = loss_b + loss_m + loss_c + loss_s
                 optimizer.zero_grad()
                 loss_total.backward()
 
@@ -204,14 +210,14 @@ try:  # Use try-except to use ctrl+c to stop and save early.
 
             if args.val_interval > 0 and step % args.val_interval == 0 and step != start_step:
                 if (not cuda) or main_gpu:
-                    table, box_map, mask_map = compute_val_map(net.module)
+                    table, box_map, mask_map = compute_val_map(net.module.net)
 
                     writer.add_scalar('box_map', box_map, global_step=step)
                     writer.add_scalar('mask_map', mask_map, global_step=step)
 
                     map_tables.append(table)
-                    save_latest(net.module if cuda else net)
-                    save_best(net.module if cuda else net)
+                    save_latest(net.module.net if cuda else net)
+                    save_best(net.module.net if cuda else net)
 
                     timer.reset()  # training time and val time share the same Obj, so reset it to avoid confusion
 
@@ -223,12 +229,14 @@ try:  # Use try-except to use ctrl+c to stop and save early.
             if step > cfg.max_iter:
                 training = False
                 print(f'Training completed, saving the final model as \'latest_{cfg.name}_{step}.pth\'.\n')
-                save_latest(net.module if cuda else net)
+                if (not cuda) or main_gpu:
+                    save_latest(net.module.net if cuda else net)
+
                 break
 
 except KeyboardInterrupt:
     print(f'\nStopped, saving the latest model as \'latest_{cfg.name}_{step}.pth\'.\n')
-    save_latest(net.module if cuda else net)
+    save_latest(net.module.net if cuda else net)
 
     print('\nValidation results during training:\n')
     for table in map_tables:
