@@ -54,32 +54,24 @@ def data_to_device(datum):
     return images, targets, masks, num_crowds
 
 
-def compute_val_map(yolact_net):
-    with torch.no_grad():
-        yolact_net.eval()
-        print("\nComputing validation mAP...", flush=True)
-        table, box_row, mask_row = evaluate(yolact_net, cfg, during_training=True)
-        yolact_net.train()
-
-    return table, box_row[1], mask_row[1]
-
-
-def save_best(net):
+def save_best(net, mask_map):
     weight = glob.glob('weights/best*')
     best_mask_map = float(weight[0].split('/')[-1].split('_')[1]) if weight else 0.
 
     if mask_map >= best_mask_map:
         if weight:
             os.remove(weight[0])  # remove the last best model
-        print(f'\nSaving the current best model as \'best_{mask_map}_{cfg.name}_{step}.pth\'.\n')
-        torch.save(net.state_dict(), f'weights/best_{mask_map}_{cfg.name}_{step}.pth')
+
+        print(f'\nSaving the best model as \'best_{mask_map}_{cfg_name}_{step}.pth\'.\n')
+        torch.save(net.state_dict(), f'weights/best_{mask_map}_{cfg_name}_{step}.pth')
 
 
 def save_latest(net):
     weight = glob.glob('weights/latest*')
     if weight:
         os.remove(weight[0])
-    torch.save(net.state_dict(), f'weights/latest_{cfg.name}_{step}.pth')
+
+    torch.save(net.state_dict(), f'weights/latest_{cfg_name}_{step}.pth')
 
 
 class NetWithLoss(nn.Module):
@@ -98,11 +90,8 @@ cfg = get_config(args)
 
 cuda = torch.cuda.is_available()
 if cuda:
-    torch.set_default_tensor_type('torch.cuda.FloatTensor')
     main_gpu = dist.get_rank() == 0
     num_gpu = dist.get_world_size()
-else:
-    torch.set_default_tensor_type('torch.FloatTensor')
 
 net = Yolact(cfg)
 net.train()
@@ -140,6 +129,7 @@ epoch_seed = 0
 map_tables = []
 training = True
 step = start_step
+cfg_name = cfg.__class__.__name__
 timer.reset()
 writer = SummaryWriter('tensorboard_log')
 
@@ -166,14 +156,19 @@ try:  # Use try-except to use ctrl+c to stop and save early.
             with timer.counter('for+loss'):
                 loss_b, loss_m, loss_c, loss_s = net(images, box_classes, masks_gt, num_crowds)
 
-                if main_gpu:  # get the mean loss across all GPUS, this is for printing
+                if cuda:
+                    # dist.reduce() should not be called in `if main_gpu:`, or processes
+                    # would be waiting forever.
                     all_loss = torch.stack([loss_b, loss_m, loss_c, loss_s], dim=0)
                     dist.reduce(all_loss, dst=0)
 
-                    l_b = all_loss[0].item() / num_gpu  # seems when printing, need to call .item(), not sure
-                    l_m = all_loss[1].item() / num_gpu
-                    l_c = all_loss[2].item() / num_gpu
-                    l_s = all_loss[3].item() / num_gpu
+                    # Get the mean loss across all GPUS, this is for printing and has nothing to do with
+                    # the model optimization.
+                    if main_gpu:
+                        l_b = all_loss[0].item() / num_gpu  # seems when printing, need to call .item(), not sure
+                        l_m = all_loss[1].item() / num_gpu
+                        l_c = all_loss[2].item() / num_gpu
+                        l_s = all_loss[3].item() / num_gpu
 
             with timer.counter('backward'):
                 loss_total = loss_b + loss_m + loss_c + loss_s
@@ -190,7 +185,7 @@ try:  # Use try-except to use ctrl+c to stop and save early.
                 timer.add_batch_time(batch_time)
             time_last = time_this
 
-            if step % 10 == 0 and step != start_step:
+            if step % 20 == 0 and step != start_step:
                 if (not cuda) or main_gpu:
                     cur_lr = optimizer.param_groups[0]['lr']
                     time_name = ['batch', 'data', 'for+loss', 'backward', 'update']
@@ -210,14 +205,16 @@ try:  # Use try-except to use ctrl+c to stop and save early.
 
             if args.val_interval > 0 and step % args.val_interval == 0 and step != start_step:
                 if (not cuda) or main_gpu:
-                    table, box_map, mask_map = compute_val_map(net.module.net)
+                    net.eval()
+                    table, box_row, mask_row = evaluate(net.module.net, cfg, during_training=True)
+                    net.train()
 
-                    writer.add_scalar('box_map', box_map, global_step=step)
-                    writer.add_scalar('mask_map', mask_map, global_step=step)
+                    writer.add_scalar('box_map', box_row[1], global_step=step)
+                    writer.add_scalar('mask_map', mask_row[1], global_step=step)
 
                     map_tables.append(table)
                     save_latest(net.module.net if cuda else net)
-                    save_best(net.module.net if cuda else net)
+                    save_best(net.module.net if cuda else net, mask_row[1])
 
                     timer.reset()  # training time and val time share the same Obj, so reset it to avoid confusion
 
@@ -228,16 +225,18 @@ try:  # Use try-except to use ctrl+c to stop and save early.
 
             if step > cfg.max_iter:
                 training = False
-                print(f'Training completed, saving the final model as \'latest_{cfg.name}_{step}.pth\'.\n')
+
                 if (not cuda) or main_gpu:
+                    print(f'Training completed, saving the final model as \'latest_{cfg_name}_{step}.pth\'.\n')
                     save_latest(net.module.net if cuda else net)
 
                 break
 
 except KeyboardInterrupt:
-    print(f'\nStopped, saving the latest model as \'latest_{cfg.name}_{step}.pth\'.\n')
-    save_latest(net.module.net if cuda else net)
+    if (not cuda) or main_gpu:
+        print(f'\nStopped, saving the latest model as \'latest_{cfg_name}_{step}.pth\'.\n')
+        save_latest(net.module.net if cuda else net)
 
-    print('\nValidation results during training:\n')
-    for table in map_tables:
-        print(table, '\n')
+        print('\nValidation results during training:\n')
+        for table in map_tables:
+            print(table, '\n')

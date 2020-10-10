@@ -166,9 +166,9 @@ class Multi_Loss(nn.Module):
         #          '0' means background, '>0' means foreground.
         # prior_max_box: the corresponding max IoU gt box for each prior
         # prior_max_index: the index of the corresponding max IoU gt box for each prior
-        all_offsets = Variable(all_offsets, requires_grad=False)  # (n, 19248, 4)
-        conf_gt = Variable(conf_gt, requires_grad=False)  # (n, 19248)
-        prior_max_index = Variable(prior_max_index, requires_grad=False)  # (n, 19248)
+        assert not all_offsets.requires_grad, 'Incorrect computation graph, all_offsets.requires_grad is True.'
+        assert not conf_gt.requires_grad, 'Incorrect computation graph, conf_gt.requires_grad is True.'
+        assert not prior_max_index.requires_grad, 'Incorrect computation graph, prior_max_index.requires_grad is True.'
 
         # only compute losses from positive samples
         positive_bool = conf_gt > 0  # (n, 19248)

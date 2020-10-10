@@ -290,61 +290,62 @@ def evaluate(net, cfg, during_training=False, cocoapi=False):
     make_json = Make_json()
     timer.reset()
 
-    for i, image_idx in enumerate(dataset_indices):
-        if i == 1:
-            timer.start()
+    with torch.no_grad():
+        for i, image_idx in enumerate(dataset_indices):
+            if i == 1:
+                timer.start()
 
-        img, gt, gt_masks, h, w, num_crowd = dataset.pull_item(image_idx)
+            img, gt, gt_masks, h, w, num_crowd = dataset.pull_item(image_idx)
 
-        batch = img.unsqueeze(0)
-        if cuda:
-            batch = batch.cuda()
+            batch = img.unsqueeze(0)
+            if cuda:
+                batch = batch.cuda()
 
-        with timer.counter('forward'):
-            net_outs = net(batch)
+            with timer.counter('forward'):
+                net_outs = net(batch)
 
-        with timer.counter('nms'):
-            nms_outs = nms(cfg, net_outs, cfg.traditional_nms)
+            with timer.counter('nms'):
+                nms_outs = nms(cfg, net_outs, cfg.traditional_nms)
 
-        with timer.counter('prep_metrics'):
-            prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, dataset.ids[image_idx], make_json)
+            with timer.counter('prep_metrics'):
+                prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, dataset.ids[image_idx], make_json)
 
-        aa = time.perf_counter()
-        if i > 0:
-            batch_time = aa - temp
-            timer.add_batch_time(batch_time)
+            aa = time.perf_counter()
+            if i > 0:
+                batch_time = aa - temp
+                timer.add_batch_time(batch_time)
 
-            t_t, t_d, t_f, t_nms, t_pm = timer.get_times(['batch', 'data', 'forward', 'nms', 'prep_metrics'])
-            fps, t_fps = 1 / (t_d + t_f + t_nms), 1 / t_t
-            bar_str = progress_bar.get_bar(i + 1)
-            print(f'\rTesting: {bar_str} {i + 1}/{ds}, fps: {fps:.2f} | total fps: {t_fps:.2f} | t_t: {t_t:.3f} | '
-                  f't_d: {t_d:.3f} | t_f: {t_f:.3f} | t_nms: {t_nms:.3f} | t_pm: {t_pm:.3f}', end='')
+                t_t, t_d, t_f, t_nms, t_pm = timer.get_times(['batch', 'data', 'forward', 'nms', 'prep_metrics'])
+                fps, t_fps = 1 / (t_d + t_f + t_nms), 1 / t_t
+                bar_str = progress_bar.get_bar(i + 1)
+                print(f'\rTesting: {bar_str} {i + 1}/{ds}, fps: {fps:.2f} | total fps: {t_fps:.2f} | t_t: {t_t:.3f} | '
+                      f't_d: {t_d:.3f} | t_f: {t_f:.3f} | t_nms: {t_nms:.3f} | t_pm: {t_pm:.3f}', end='')
 
-        temp = aa
+            temp = aa
 
-    if cocoapi:
-        make_json.dump()
-        print(f'\nJson files dumped, saved in: \'results/\', start evaluting.')
+        if cocoapi:
+            make_json.dump()
+            print(f'\nJson files dumped, saved in: \'results/\', start evaluting.')
 
-        gt_annotations = COCO(cfg.dataset.valid_info)
-        bbox_dets = gt_annotations.loadRes(f'results/bbox_detections.json')
-        mask_dets = gt_annotations.loadRes(f'results/mask_detections.json')
+            gt_annotations = COCO(cfg.dataset.valid_info)
+            bbox_dets = gt_annotations.loadRes(f'results/bbox_detections.json')
+            mask_dets = gt_annotations.loadRes(f'results/mask_detections.json')
 
-        print('\nEvaluating BBoxes:')
-        bbox_eval = COCOeval(gt_annotations, bbox_dets, 'bbox')
-        bbox_eval.evaluate()
-        bbox_eval.accumulate()
-        bbox_eval.summarize()
+            print('\nEvaluating BBoxes:')
+            bbox_eval = COCOeval(gt_annotations, bbox_dets, 'bbox')
+            bbox_eval.evaluate()
+            bbox_eval.accumulate()
+            bbox_eval.summarize()
 
-        print('\nEvaluating Masks:')
-        bbox_eval = COCOeval(gt_annotations, mask_dets, 'segm')
-        bbox_eval.evaluate()
-        bbox_eval.accumulate()
-        bbox_eval.summarize()
-    else:
-        table, box_row, mask_row = calc_map(ap_data)
-        print(table)
-        return table, box_row, mask_row
+            print('\nEvaluating Masks:')
+            bbox_eval = COCOeval(gt_annotations, mask_dets, 'segm')
+            bbox_eval.evaluate()
+            bbox_eval.accumulate()
+            bbox_eval.summarize()
+        else:
+            table, box_row, mask_row = calc_map(ap_data)
+            print(table)
+            return table, box_row, mask_row
 
 
 iou_thresholds = [x / 100 for x in range(50, 100, 5)]
@@ -355,20 +356,19 @@ if __name__ == '__main__':
     args.cfg = re.findall(r'res.+_[a-z]+', args.weight)[0]
     cfg = get_config(args, val_mode=True)
 
-    with torch.no_grad():
-        if cuda:
-            cudnn.benchmark = True
-            cudnn.fastest = True
-            torch.set_default_tensor_type('torch.cuda.FloatTensor')
-        else:
-            torch.set_default_tensor_type('torch.FloatTensor')
+    if cuda:
+        cudnn.benchmark = True
+        cudnn.fastest = True
+        torch.set_default_tensor_type('torch.cuda.FloatTensor')
+    else:
+        torch.set_default_tensor_type('torch.FloatTensor')
 
-        net = Yolact(cfg)
-        net.load_weights(cfg.weight, cuda)
-        net.eval()
-        print(f'Model loaded with {cfg.weight}.\n')
+    net = Yolact(cfg)
+    net.load_weights(cfg.weight, cuda)
+    net.eval()
+    print(f'Model loaded with {cfg.weight}.\n')
 
-        if cuda:
-            net = net.cuda()
+    if cuda:
+        net = net.cuda()
 
-        evaluate(net, cfg, during_training=False)
+    evaluate(net, cfg, during_training=False)
