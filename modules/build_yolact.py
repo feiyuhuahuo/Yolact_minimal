@@ -244,7 +244,7 @@ class Yolact(nn.Module):
             for i, shape in enumerate([list(aa.shape) for aa in outs]):
                 self.anchors += make_anchors(self.cfg, shape[2], shape[3], self.cfg.scales[i])
 
-            self.anchors = torch.tensor(self.anchors).reshape(-1, 4).cuda()
+            self.anchors = torch.tensor(self.anchors, device=outs[0].device).reshape(-1, 4)
 
         # outs[0]: [2, 256, 69, 69], the feature map from P3
         proto_out = self.proto_net(outs[0])  # proto_out: (n, 32, 138, 138)

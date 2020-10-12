@@ -55,7 +55,6 @@ def jaccard(box_a, box_b, iscrowd: bool = False):
 
 
 def match(cfg, box_gt, priors, class_gt, crowd_boxes):
-    priors = priors.data
     # Convert prior boxes to the form of [xmin, ymin, xmax, ymax].
     decoded_priors = torch.cat((priors[:, :2] - priors[:, 2:] / 2, priors[:, :2] + priors[:, 2:] / 2), 1)
 

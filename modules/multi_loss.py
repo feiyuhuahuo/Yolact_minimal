@@ -2,8 +2,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.autograd import Variable
 from utils.box_utils import match, crop
+import pdb
 
 
 class Multi_Loss(nn.Module):
@@ -14,13 +14,13 @@ class Multi_Loss(nn.Module):
 
     def ohem_conf_loss(self, class_p, conf_gt, positive_bool):
         # Compute max conf across batch for hard negative mining
-        batch_conf = class_p.view(-1, self.cfg.num_classes)  # (38496, 81)
+        batch_conf = class_p.reshape(-1, self.cfg.num_classes)  # (38496, 81)
 
-        batch_conf_max = batch_conf.data.max()
+        batch_conf_max = batch_conf.max()
         mark = torch.log(torch.sum(torch.exp(batch_conf - batch_conf_max), 1)) + batch_conf_max - batch_conf[:, 0]
 
         # Hard Negative Mining
-        mark = mark.view(class_p.size(0), -1)  # (n, 19248)
+        mark = mark.reshape(class_p.size(0), -1)  # (n, 19248)
         mark[positive_bool] = 0  # filter out pos boxes
         mark[conf_gt < 0] = 0  # filter out neutrals (conf_gt = -1)
 
@@ -36,16 +36,10 @@ class Multi_Loss(nn.Module):
         negative_bool[conf_gt < 0] = 0  # Filter out neutrals
 
         # Confidence Loss Including Positive and Negative Examples
-        class_p_selected = class_p[(positive_bool + negative_bool)].view(-1, self.cfg.num_classes)
+        class_p_selected = class_p[(positive_bool + negative_bool)].reshape(-1, self.cfg.num_classes)
         class_gt_selected = conf_gt[(positive_bool + negative_bool)]
 
-        loss_c = F.cross_entropy(class_p_selected, class_gt_selected, reduction='sum')
-
-        return self.cfg.conf_alpha * loss_c
-
-    def bbox_loss(self, pos_box_p, pos_offsets):
-        loss_b = F.smooth_l1_loss(pos_box_p, pos_offsets, reduction='sum') * self.cfg.bbox_alpha
-        return loss_b
+        return self.cfg.conf_alpha * F.cross_entropy(class_p_selected, class_gt_selected, reduction='sum')
 
     def lincomb_mask_loss(self, positive_bool, prior_max_index, coef_p, proto_p, mask_gt, prior_max_box):
         proto_h = proto_p.size(1)  # 138
@@ -53,17 +47,16 @@ class Multi_Loss(nn.Module):
 
         loss_m = 0
         for i in range(coef_p.size(0)):  # coef_p.shape: (n, 19248, 32)
-            with torch.no_grad():
-                # downsample the gt mask to the size of 'proto_p'
-                downsampled_masks = F.interpolate(mask_gt[i].unsqueeze(0), (proto_h, proto_w), mode='bilinear',
-                                                  align_corners=False).squeeze(0)
-                downsampled_masks = downsampled_masks.permute(1, 2, 0).contiguous()  # (138, 138, num_objects)
-                # binarize the gt mask because of the downsample operation
-                downsampled_masks = downsampled_masks.gt(0.5).float()
+            # downsample the gt mask to the size of 'proto_p'
+            downsampled_masks = F.interpolate(mask_gt[i].unsqueeze(0), (proto_h, proto_w), mode='bilinear',
+                                              align_corners=False).squeeze(0)
+            downsampled_masks = downsampled_masks.permute(1, 2, 0).contiguous()  # (138, 138, num_objects)
+            # binarize the gt mask because of the downsample operation
+            downsampled_masks = downsampled_masks.gt(0.5).float()
 
-            pos_prior_index = prior_max_index[i, positive_bool[i]]  # pos_prior_index.shape: [num_positives]
-            pos_prior_box = prior_max_box[i, positive_bool[i]]
-            pos_coef = coef_p[i, positive_bool[i]]
+            pos_prior_index = prior_max_index[i][positive_bool[i]]  # pos_prior_index.shape: [num_positives]
+            pos_prior_box = prior_max_box[i][positive_bool[i]]
+            pos_coef = coef_p[i][positive_bool[i]]
 
             if pos_prior_index.size(0) == 0:
                 continue
@@ -108,23 +101,20 @@ class Multi_Loss(nn.Module):
             cur_segment = segmentation_p[i]
             cur_class_gt = class_gt[i]
 
-            with torch.no_grad():
-                downsampled_masks = F.interpolate(mask_gt[i].unsqueeze(0), (mask_h, mask_w), mode='bilinear',
-                                                  align_corners=False).squeeze(0)
-                downsampled_masks = downsampled_masks.gt(0.5).float()  # (num_objects, 69, 69)
+            downsampled_masks = F.interpolate(mask_gt[i].unsqueeze(0), (mask_h, mask_w), mode='bilinear',
+                                              align_corners=False).squeeze(0)
+            downsampled_masks = downsampled_masks.gt(0.5).float()  # (num_objects, 69, 69)
 
-                # Construct Semantic Segmentation
-                segment_gt = torch.zeros_like(cur_segment, requires_grad=False)
-                for i_obj in range(downsampled_masks.size(0)):
-                    segment_gt[cur_class_gt[i_obj]] = torch.max(segment_gt[cur_class_gt[i_obj]],
-                                                                downsampled_masks[i_obj])
+            # Construct Semantic Segmentation
+            segment_gt = torch.zeros_like(cur_segment, requires_grad=False)
+            for j in range(downsampled_masks.size(0)):
+                segment_gt[cur_class_gt[j]] = torch.max(segment_gt[cur_class_gt[j]], downsampled_masks[j])
 
             loss_s += F.binary_cross_entropy_with_logits(cur_segment, segment_gt, reduction='sum')
 
         return loss_s / mask_h / mask_w * self.cfg.semantic_alpha
 
     def forward(self, predictions, box_class, mask_gt, num_crowds):
-        # If DataParallel was used, predictions here are the merged results from multiple GPUs.
         box_p = predictions['box']  # (n, 19248, 4)
         class_p = predictions['class']  # (n, 19248, 81)
         coef_p = predictions['coef']  # (n, 19248, 32)
@@ -133,8 +123,7 @@ class Multi_Loss(nn.Module):
 
         class_gt = [None] * len(box_class)
         batch_size = box_p.size(0)
-        anchors = anchors[:box_p.size(1), :]  # Do this because DataParallel cats all GPU's anchors together.
-        num_priors = (anchors.size(0))  # 19248
+        num_priors = anchors.size(0)
 
         all_offsets = box_p.new(batch_size, num_priors, 4)
         conf_gt = box_p.new(batch_size, num_priors).long()
@@ -142,8 +131,8 @@ class Multi_Loss(nn.Module):
         prior_max_index = box_p.new(batch_size, num_priors).long()
 
         for i in range(batch_size):
-            box_gt = box_class[i][:, :-1].data
-            class_gt[i] = box_class[i][:, -1].data.long()
+            box_gt = box_class[i][:, :-1]
+            class_gt[i] = box_class[i][:, -1].long()
 
             cur_crowds = num_crowds[i]
             if cur_crowds > 0:
@@ -172,22 +161,20 @@ class Multi_Loss(nn.Module):
 
         # only compute losses from positive samples
         positive_bool = conf_gt > 0  # (n, 19248)
-        num_pos = positive_bool.sum(dim=1, keepdim=True)
+        num_pos = positive_bool.sum()
 
         pos_box_p = box_p[positive_bool, :]
         pos_offsets = all_offsets[positive_bool, :]
 
-        loss_b = self.bbox_loss(pos_box_p, pos_offsets)
+        loss_b = F.smooth_l1_loss(pos_box_p, pos_offsets, reduction='sum') * self.cfg.bbox_alpha
         loss_m = self.lincomb_mask_loss(positive_bool, prior_max_index, coef_p, proto_p, mask_gt, prior_max_box)
         loss_c = self.ohem_conf_loss(class_p, conf_gt, positive_bool)
         if self.cfg.train_semantic:
             loss_s = self.semantic_segmentation_loss(predictions['segm'], mask_gt, class_gt)
 
-        total_num_pos = num_pos.data.sum().float()
-
-        loss_b /= total_num_pos
-        loss_m /= total_num_pos
-        loss_c /= total_num_pos
+        loss_b /= num_pos
+        loss_m /= num_pos
+        loss_c /= num_pos
         loss_s /= batch_size
 
         return loss_b, loss_m, loss_c, loss_s

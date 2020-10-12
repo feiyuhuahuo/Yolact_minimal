@@ -28,7 +28,7 @@ parser.add_argument('--traditional_nms', default=False, action='store_true', hel
 parser.add_argument('--val_num', default=-1, type=int, help='The number of images for test, set to -1 for all.')
 
 
-class Make_json:
+class MakeJson:
     def __init__(self):
         self.bbox_data = []
         self.mask_data = []
@@ -140,7 +140,8 @@ class APDataObject:
 
 
 def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, make_json, cocoapi=False):
-    """ Returns a list of APs for this image, with each element being for a class  """
+    gt = torch.tensor(gt, dtype=torch.float32)
+    gt_masks = torch.tensor(gt_masks, dtype=torch.float32).reshape(-1, h * w)
 
     pred_classes, pred_confs, pred_boxes, pred_masks = after_nms(nms_outs, h, w)
     if pred_classes.size(0) == 0:
@@ -148,8 +149,7 @@ def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, mak
 
     pred_classes = list(pred_classes.cpu().numpy().astype(int))
     pred_confs = list(pred_confs.cpu().numpy().astype(float))
-    pred_masks = pred_masks.reshape(-1, h * w).cuda() if cuda else pred_masks.reshape(-1, h * w)
-    pred_boxes = pred_boxes.cuda() if cuda else pred_boxes
+    pred_masks = pred_masks.reshape(-1, h * w)
 
     if cocoapi:
         pred_boxes = pred_boxes.cpu().numpy()
@@ -160,13 +160,17 @@ def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, mak
             if (pred_boxes[i, 3] - pred_boxes[i, 1]) * (pred_boxes[i, 2] - pred_boxes[i, 0]) > 0:
                 make_json.add_bbox(image_id, pred_classes[i], pred_boxes[i, :], pred_confs[i])
                 make_json.add_mask(image_id, pred_classes[i], pred_masks[i, :, :], pred_confs[i])
-
     else:
-        gt_boxes = torch.tensor(gt[:, :4])
+        if cuda:
+            pred_boxes = pred_boxes.cuda()
+            pred_masks = pred_masks.cuda()
+            gt = gt.cuda()
+            gt_masks = gt_masks.cuda()
+
+        gt_boxes = gt[:, :4]
         gt_boxes[:, [0, 2]] *= w
         gt_boxes[:, [1, 3]] *= h
-        gt_classes = list(gt[:, 4].astype(int))
-        gt_masks = torch.tensor(gt_masks, dtype=torch.float32).reshape(-1, h * w)
+        gt_classes = gt[:, 4].int().tolist()
 
         if num_crowd > 0:
             split = lambda x: (x[-num_crowd:], x[:-num_crowd])
@@ -239,7 +243,7 @@ def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, mak
                                 ap_obj.push(pred_confs[i], False)
 
 
-def calc_map(ap_data):
+def calc_map(ap_data, cfg):
     print('\nCalculating mAP...')
     aps = [{'box': [], 'mask': []} for _ in iou_thresholds]
 
@@ -276,19 +280,18 @@ def calc_map(ap_data):
     return table.table, row2, row3
 
 
-def evaluate(net, cfg, during_training=False, cocoapi=False):
+def evaluate(net, cfg, cocoapi=False):
     dataset = COCODetection(cfg, val=True)
     ds = len(dataset) if cfg.val_num < 0 else min(cfg.val_num, len(dataset))
     dataset_indices = list(range(len(dataset)))
     dataset_indices = dataset_indices[:ds]
     progress_bar = ProgressBar(40, ds)
-
+    make_json = MakeJson()
+    timer.reset()
     # For each class and iou, stores tuples (score, isPositive)
     # Index ap_data[type][iouIdx][classIdx]
     ap_data = {'box': [[APDataObject() for _ in cfg.class_names] for _ in iou_thresholds],
                'mask': [[APDataObject() for _ in cfg.class_names] for _ in iou_thresholds]}
-    make_json = Make_json()
-    timer.reset()
 
     with torch.no_grad():
         for i, image_idx in enumerate(dataset_indices):
@@ -343,7 +346,7 @@ def evaluate(net, cfg, during_training=False, cocoapi=False):
             bbox_eval.accumulate()
             bbox_eval.summarize()
         else:
-            table, box_row, mask_row = calc_map(ap_data)
+            table, box_row, mask_row = calc_map(ap_data, cfg)
             print(table)
             return table, box_row, mask_row
 
@@ -371,4 +374,4 @@ if __name__ == '__main__':
     if cuda:
         net = net.cuda()
 
-    evaluate(net, cfg, during_training=False)
+    evaluate(net, cfg)

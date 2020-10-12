@@ -28,7 +28,7 @@ parser.add_argument('--train_bs', type=int, default=8, help='total training batc
 parser.add_argument('--test_bs', type=int, default=1, help='-1 to disable val')
 parser.add_argument('--img_size', default=550, type=int, help='The image size for training.')
 parser.add_argument('--resume', default=None, type=str, help='The path of the weight file to resume training with.')
-parser.add_argument('--val_interval', default=2000, type=int,
+parser.add_argument('--val_interval', default=4000, type=int,
                     help='The validation interval during training, pass -1 to disable.')
 parser.add_argument('--val_num', default=-1, type=int, help='The number of images for test, set to -1 for all.')
 parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
@@ -121,7 +121,7 @@ if cuda:
     train_sampler = DistributedSampler(dataset, shuffle=True)
 
 # shuffle must be False if sampler is specified
-data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=6, shuffle=(train_sampler is None),
+data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=cfg.bs_per_gpu, shuffle=(train_sampler is None),
                               collate_fn=detection_collate, pin_memory=True, sampler=train_sampler)
 
 step_index = 0
@@ -176,8 +176,10 @@ try:  # Use try-except to use ctrl+c to stop and save early.
                 loss_total.backward()
 
             with timer.counter('update'):
-                if torch.isfinite(loss_total).item():
+                if torch.isfinite(loss_total):
                     optimizer.step()
+                else:
+                    print(loss_total)
 
             time_this = time.time()
             if i > start_step:
@@ -206,7 +208,7 @@ try:  # Use try-except to use ctrl+c to stop and save early.
             if args.val_interval > 0 and step % args.val_interval == 0 and step != start_step:
                 if (not cuda) or main_gpu:
                     net.eval()
-                    table, box_row, mask_row = evaluate(net.module.net, cfg, during_training=True)
+                    table, box_row, mask_row = evaluate(net.module.net, cfg)
                     net.train()
 
                     writer.add_scalar('box_map', box_row[1], global_step=step)

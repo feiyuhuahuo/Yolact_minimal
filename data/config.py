@@ -80,8 +80,8 @@ class res101_coco:
             self.bs_per_gpu = args.bs_per_gpu
         self.test_bs = args.test_bs
         if not val_mode:
-            self.train_imgs = self.data_root + 'coco2017/train2017/'
-            self.train_ann = self.data_root + 'coco2017/annotations/instances_train2017.json'
+            self.train_imgs = self.data_root + 'coco2017/val2017/'
+            self.train_ann = self.data_root + 'coco2017/annotations/instances_val2017.json'
         self.val_imgs = self.data_root + 'coco2017/val2017/'
         self.val_ann = self.data_root + 'coco2017/annotations/instances_val2017.json'
         self.val_num = args.val_num
