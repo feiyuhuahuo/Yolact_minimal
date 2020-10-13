@@ -24,7 +24,8 @@ def start():
     mark = True
 
     for k, v in times.items():
-        assert len(v) == 0, 'Error, time list is not empty when starting.'
+        if len(v) != 0:
+            print('Warning, time list is not empty when starting.')
 
 
 def add_batch_time(batch_time):

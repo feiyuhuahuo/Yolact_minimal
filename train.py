@@ -34,26 +34,6 @@ parser.add_argument('--val_num', default=-1, type=int, help='The number of image
 parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
 
 
-def set_lr(optimizer, new_lr):
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = new_lr
-
-
-def data_to_device(datum):
-    images, targets, masks, num_crowds = datum
-
-    if cuda:
-        images = images.cuda().detach()
-        targets = [ann.cuda().detach() for ann in targets]
-        masks = [mask.cuda().detach() for mask in masks]
-    else:
-        images = images.detach()
-        targets = [ann.detach() for ann in targets]
-        masks = [mask.detach() for mask in masks]
-
-    return images, targets, masks, num_crowds
-
-
 def save_best(net, mask_map):
     weight = glob.glob('weights/best*')
     best_mask_map = float(weight[0].split('/')[-1].split('_')[1]) if weight else 0.
@@ -89,6 +69,7 @@ args = parser.parse_args()
 cfg = get_config(args)
 
 cuda = torch.cuda.is_available()
+main_gpu = False
 if cuda:
     main_gpu = dist.get_rank() == 0
     num_gpu = dist.get_world_size()
@@ -128,9 +109,9 @@ step_index = 0
 epoch_seed = 0
 map_tables = []
 training = True
+timer.reset()
 step = start_step
 cfg_name = cfg.__class__.__name__
-timer.reset()
 writer = SummaryWriter('tensorboard_log')
 
 try:  # Use try-except to use ctrl+c to stop and save early.
@@ -139,36 +120,33 @@ try:  # Use try-except to use ctrl+c to stop and save early.
             epoch_seed += 1
             train_sampler.set_epoch(epoch_seed)
 
-        for i, datum in enumerate(data_loader):
-            if ((not cuda) or main_gpu) and i == start_step + 1:
+        for images, targets, masks, num_crowds in data_loader:
+            if ((not cuda) or main_gpu) and step == start_step + 1:
                 timer.start()
 
             if cfg.warmup_until > 0 and step <= cfg.warmup_until:  # Warm up learning rate.
-                set_lr(optimizer, (cfg.lr - cfg.warmup_init) * (step / cfg.warmup_until) + cfg.warmup_init)
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = (cfg.lr - cfg.warmup_init) * (step / cfg.warmup_until) + cfg.warmup_init
 
             # Adjust the learning rate according to the current step.
             while step_index < len(cfg.lr_steps) and step >= cfg.lr_steps[step_index]:
                 step_index += 1
-                set_lr(optimizer, cfg.lr * (0.1 ** step_index))
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = cfg.lr * (0.1 ** step_index)
 
-            images, box_classes, masks_gt, num_crowds = data_to_device(datum)
+            if cuda:
+                images = images.cuda().detach()
+                targets = [ann.cuda().detach() for ann in targets]
+                masks = [mask.cuda().detach() for mask in masks]
 
             with timer.counter('for+loss'):
-                loss_b, loss_m, loss_c, loss_s = net(images, box_classes, masks_gt, num_crowds)
+                loss_b, loss_m, loss_c, loss_s = net(images, targets, masks, num_crowds)
 
                 if cuda:
-                    # dist.reduce() should not be called in `if main_gpu:`, or processes
-                    # would be waiting forever.
+                    # use .all_reduce() to get the each loss of every GPU
                     all_loss = torch.stack([loss_b, loss_m, loss_c, loss_s], dim=0)
-                    dist.reduce(all_loss, dst=0)
-
-                    # Get the mean loss across all GPUS, this is for printing and has nothing to do with
-                    # the model optimization.
-                    if main_gpu:
-                        l_b = all_loss[0].item() / num_gpu  # seems when printing, need to call .item(), not sure
-                        l_m = all_loss[1].item() / num_gpu
-                        l_c = all_loss[2].item() / num_gpu
-                        l_s = all_loss[3].item() / num_gpu
+                    dist.all_reduce(all_loss)
+                    all_loss_sum = all_loss.sum()
 
             with timer.counter('backward'):
                 loss_total = loss_b + loss_m + loss_c + loss_s
@@ -176,24 +154,32 @@ try:  # Use try-except to use ctrl+c to stop and save early.
                 loss_total.backward()
 
             with timer.counter('update'):
-                if torch.isfinite(loss_total):
+                finite_loss = torch.isfinite(all_loss_sum) if cuda else torch.isfinite(loss_total)
+
+                if finite_loss:
                     optimizer.step()
-                else:
-                    print(loss_total)
 
             time_this = time.time()
-            if i > start_step:
+            if step > start_step:
                 batch_time = time_this - time_last
                 timer.add_batch_time(batch_time)
             time_last = time_this
 
             if step % 20 == 0 and step != start_step:
-                if (not cuda) or main_gpu:
+                if not finite_loss:
+                    print('Infinite loss...')
+                elif (not cuda) or main_gpu:
                     cur_lr = optimizer.param_groups[0]['lr']
                     time_name = ['batch', 'data', 'for+loss', 'backward', 'update']
                     t_t, t_d, t_fl, t_b, t_u = timer.get_times(time_name)
                     seconds = (cfg.max_iter - step) * t_t
                     eta = str(datetime.timedelta(seconds=seconds)).split('.')[0]
+
+                    # Get the mean loss across all GPUS for printing, seems need to call .item(), not sure
+                    l_b = all_loss[0].item() / num_gpu if main_gpu else loss_b.item()
+                    l_m = all_loss[1].item() / num_gpu if main_gpu else loss_m.item()
+                    l_c = all_loss[2].item() / num_gpu if main_gpu else loss_c.item()
+                    l_s = all_loss[3].item() / num_gpu if main_gpu else loss_s.item()
 
                     writer.add_scalar(f'task/box', l_b, global_step=step)
                     writer.add_scalar(f'task/mask', l_m, global_step=step)
@@ -201,7 +187,7 @@ try:  # Use try-except to use ctrl+c to stop and save early.
                     writer.add_scalar(f'task/semantic', l_s, global_step=step)
                     writer.add_scalar('total', loss_total, global_step=step)
 
-                    print(f'step: {i} | lr: {cur_lr:.2e} | l_class: {l_c:.3f} | l_box: {l_b:.3f} | '
+                    print(f'step: {step} | lr: {cur_lr:.2e} | l_class: {l_c:.3f} | l_box: {l_b:.3f} | '
                           f'l_mask: {l_m:.3f} | l_semantic: {l_s:.3f} | t_t: {t_t:.3f} | t_d: {t_d:.3f} | '
                           f't_fl: {t_fl:.3f} | t_b: {t_b:.3f} | t_u: {t_u:.3f} | ETA: {eta}')
 
@@ -218,9 +204,9 @@ try:  # Use try-except to use ctrl+c to stop and save early.
                     save_latest(net.module.net if cuda else net)
                     save_best(net.module.net if cuda else net, mask_row[1])
 
-                    timer.reset()  # training time and val time share the same Obj, so reset it to avoid confusion
+                    timer.reset()  # training time and val time share the same Obj, so reset it to avoid conflict
 
-            if ((not cuda) or main_gpu) and i != 1 and i % cfg.val_interval == 1:
+            if ((not cuda) or main_gpu) and step != 1 and step % cfg.val_interval == 1:
                 timer.start()  # the first iter after validation should not be included
 
             step += 1
