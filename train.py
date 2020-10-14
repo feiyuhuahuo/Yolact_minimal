@@ -93,7 +93,7 @@ else:
     print(f'\nTraining from begining, weights initialized with {cfg.weight}.\n')
     start_step = 0
 
-dataset = COCODetection(cfg, val=False)
+dataset = COCODetection(cfg, val_mode=False)
 train_sampler = None
 if cuda:
     cudnn.benchmark = True
@@ -119,6 +119,8 @@ try:  # Use try-except to use ctrl+c to stop and save early.
         if train_sampler:
             epoch_seed += 1
             train_sampler.set_epoch(epoch_seed)
+            print(len(data_loader))
+            print(epoch_seed)
 
         for images, targets, masks, num_crowds in data_loader:
             if ((not cuda) or main_gpu) and step == start_step + 1:
@@ -143,7 +145,7 @@ try:  # Use try-except to use ctrl+c to stop and save early.
                 loss_b, loss_m, loss_c, loss_s = net(images, targets, masks, num_crowds)
 
                 if cuda:
-                    # use .all_reduce() to get the each loss of every GPU
+                    # use .all_reduce() to get the summed loss from all GPUs
                     all_loss = torch.stack([loss_b, loss_m, loss_c, loss_s], dim=0)
                     dist.all_reduce(all_loss)
                     all_loss_sum = all_loss.sum()
@@ -158,6 +160,8 @@ try:  # Use try-except to use ctrl+c to stop and save early.
 
                 if finite_loss:
                     optimizer.step()
+                else:
+                    print(f'Infinite loss, step: {step}')
 
             time_this = time.time()
             if step > start_step:
@@ -166,9 +170,7 @@ try:  # Use try-except to use ctrl+c to stop and save early.
             time_last = time_this
 
             if step % 20 == 0 and step != start_step:
-                if not finite_loss:
-                    print('Infinite loss...')
-                elif (not cuda) or main_gpu:
+                if finite_loss and ((not cuda) or main_gpu):
                     cur_lr = optimizer.param_groups[0]['lr']
                     time_name = ['batch', 'data', 'for+loss', 'backward', 'update']
                     t_t, t_d, t_fl, t_b, t_u = timer.get_times(time_name)

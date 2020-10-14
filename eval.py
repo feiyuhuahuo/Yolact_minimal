@@ -281,7 +281,7 @@ def calc_map(ap_data, cfg):
 
 
 def evaluate(net, cfg, cocoapi=False):
-    dataset = COCODetection(cfg, val=True)
+    dataset = COCODetection(cfg, val_mode=True)
     ds = len(dataset) if cfg.val_num < 0 else min(cfg.val_num, len(dataset))
     dataset_indices = list(range(len(dataset)))
     dataset_indices = dataset_indices[:ds]
@@ -298,7 +298,7 @@ def evaluate(net, cfg, cocoapi=False):
             if i == 1:
                 timer.start()
 
-            img, gt, gt_masks, h, w, num_crowd = dataset.pull_item(image_idx)
+            img, gt, gt_masks, h, w, num_crowd = dataset.__getitem__(image_idx)
 
             batch = img.unsqueeze(0)
             if cuda:

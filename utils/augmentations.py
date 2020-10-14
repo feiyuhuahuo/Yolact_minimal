@@ -24,11 +24,6 @@ def jaccard_numpy(box_a, box_b):
 
 
 class Compose:
-    """Composes several augmentations together.
-    Args:
-        transforms (List[Transform]): list of transforms to compose.
-    """
-
     def __init__(self, transforms):
         self.transforms = transforms
 
@@ -207,16 +202,6 @@ class RandomBrightness:
         return image, masks, boxes, labels
 
 
-class ToCV2Image:
-    def __call__(self, tensor, masks=None, boxes=None, labels=None):
-        return tensor.cpu().numpy().astype(np.float32).transpose((1, 2, 0)), masks, boxes, labels
-
-
-class ToTensor:
-    def __call__(self, cvimage, masks=None, boxes=None, labels=None):
-        return torch.from_numpy(cvimage.astype(np.float32)).permute(2, 0, 1), masks, boxes, labels
-
-
 class RandomSampleCrop:
     # Potentialy sample a random crop from the image and put it in a random place
     """Crop
@@ -350,25 +335,23 @@ class Expand:
 
     def __call__(self, image, masks, boxes, labels):
         if random.randint(0, 1):
-            return image, masks, boxes, labels
+            height, width, depth = image.shape
+            ratio = random.uniform(1, 4)
+            left = random.uniform(1, width * ratio - width)
+            top = random.uniform(1, height * ratio - height)
 
-        height, width, depth = image.shape
-        ratio = random.uniform(1, 4)
-        left = random.uniform(1, width * ratio - width)
-        top = random.uniform(1, height * ratio - height)
+            expand_image = np.zeros((int(height * ratio), int(width * ratio), depth), dtype=image.dtype)
+            expand_image[:, :, :] = np.array([103.94, 116.78, 123.68])
+            expand_image[int(top):int(top + height), int(left):int(left + width)] = image
+            image = expand_image
 
-        expand_image = np.zeros((int(height * ratio), int(width * ratio), depth), dtype=image.dtype)
-        expand_image[:, :, :] = np.array([103.94, 116.78, 123.68])
-        expand_image[int(top):int(top + height), int(left):int(left + width)] = image
-        image = expand_image
+            expand_masks = np.zeros((masks.shape[0], int(height * ratio), int(width * ratio)), dtype=masks.dtype)
+            expand_masks[:, int(top):int(top + height), int(left):int(left + width)] = masks
+            masks = expand_masks
 
-        expand_masks = np.zeros((masks.shape[0], int(height * ratio), int(width * ratio)), dtype=masks.dtype)
-        expand_masks[:, int(top):int(top + height), int(left):int(left + width)] = masks
-        masks = expand_masks
-
-        boxes = boxes.copy()
-        boxes[:, :2] += (int(left), int(top))
-        boxes[:, 2:] += (int(left), int(top))
+            boxes = boxes.copy()
+            boxes[:, :2] += (int(left), int(top))
+            boxes[:, 2:] += (int(left), int(top))
 
         return image, masks, boxes, labels
 

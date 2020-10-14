@@ -36,6 +36,8 @@ ImageNet pre-trained weights.
 ## Train
 python setup.py build_ext --inplace
 Note: this project may not support multi-GPU training well. Due to the lack of device resource, I can't check this at present.
+
+python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --train_bs=8 --val_interval=3000
 ```Shell
 # Train with resnet101 backbone on coco2017 with a batch size of 8 (default).
 python train.py --config=res101_coco_config
