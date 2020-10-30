@@ -19,19 +19,19 @@ from modules.multi_loss import Multi_Loss
 from data.config import get_config
 from data.coco import COCODetection
 from eval import evaluate
-from data.coco import detection_collate
+from data.coco import train_collate
 
 parser = argparse.ArgumentParser(description='Yolact Training Script')
 parser.add_argument('--local_rank', type=int)
 parser.add_argument('--cfg', default='res101_coco', help='The configuration name to use.')
 parser.add_argument('--train_bs', type=int, default=8, help='total training batch size')
-parser.add_argument('--test_bs', type=int, default=1, help='-1 to disable val')
 parser.add_argument('--img_size', default=550, type=int, help='The image size for training.')
 parser.add_argument('--resume', default=None, type=str, help='The path of the weight file to resume training with.')
 parser.add_argument('--val_interval', default=4000, type=int,
                     help='The validation interval during training, pass -1 to disable.')
 parser.add_argument('--val_num', default=-1, type=int, help='The number of images for test, set to -1 for all.')
 parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
+parser.add_argument('--coco_api', action='store_true', help='Whether to use cocoapi to evaluate results.')
 
 
 def save_best(net, mask_map):
@@ -66,13 +66,8 @@ class NetWithLoss(nn.Module):
 
 
 args = parser.parse_args()
-cfg = get_config(args)
-
+cfg = get_config(args, mode='train')
 cuda = torch.cuda.is_available()
-main_gpu = False
-if cuda:
-    main_gpu = dist.get_rank() == 0
-    num_gpu = dist.get_world_size()
 
 net = Yolact(cfg)
 net.train()
@@ -93,17 +88,22 @@ else:
     print(f'\nTraining from begining, weights initialized with {cfg.weight}.\n')
     start_step = 0
 
-dataset = COCODetection(cfg, val_mode=False)
+dataset = COCODetection(cfg, mode='train')
 train_sampler = None
+main_gpu = False
 if cuda:
     cudnn.benchmark = True
+    cudnn.fastest = True
+    main_gpu = dist.get_rank() == 0
+    num_gpu = dist.get_world_size()
+
     net_with_loss = NetWithLoss(net, criterion)
     net = DDP(net_with_loss.cuda(), [args.local_rank], output_device=args.local_rank, broadcast_buffers=True)
     train_sampler = DistributedSampler(dataset, shuffle=True)
 
 # shuffle must be False if sampler is specified
 data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=cfg.bs_per_gpu, shuffle=(train_sampler is None),
-                              collate_fn=detection_collate, pin_memory=True, sampler=train_sampler)
+                              collate_fn=train_collate, pin_memory=True, sampler=train_sampler)
 
 step_index = 0
 epoch_seed = 0
@@ -119,8 +119,6 @@ try:  # Use try-except to use ctrl+c to stop and save early.
         if train_sampler:
             epoch_seed += 1
             train_sampler.set_epoch(epoch_seed)
-            print(len(data_loader))
-            print(epoch_seed)
 
         for images, targets, masks, num_crowds in data_loader:
             if ((not cuda) or main_gpu) and step == start_step + 1:

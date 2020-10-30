@@ -152,7 +152,7 @@ class Yolact(nn.Module):
         self.anchors = []
         self.backbone = construct_backbone(cfg.__class__.__name__, (1, 2, 3))
 
-        if (not cfg.val_mode) and cfg.freeze_bn:
+        if cfg.mode == 'train' and cfg.freeze_bn:
             self.freeze_bn()
 
         self.proto_net, coef_dim = make_net(256, mask_proto_net, include_last_relu=False)
@@ -185,7 +185,7 @@ class Yolact(nn.Module):
                                 (mask_layer): Conv2d(256, 96, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))))
         '''
 
-        if cfg.train_semantic:  # True
+        if cfg.mode == 'train' and cfg.train_semantic:  # True
             self.semantic_seg_conv = nn.Conv2d(256, cfg.num_classes - 1, kernel_size=1)
 
     def load_weights(self, path, cuda):
@@ -200,6 +200,9 @@ class Yolact(nn.Module):
             if key.startswith('fpn.downsample_layers.'):
                 if int(key.split('.')[2]) >= 2:
                     del state_dict[key]
+
+            if self.cfg.mode != 'train' and key.startswith('semantic_seg_conv'):
+                del state_dict[key]
 
         self.load_state_dict(state_dict)
 
@@ -216,8 +219,7 @@ class Yolact(nn.Module):
 
     def train(self, mode=True):
         super().train(mode)
-
-        if (not self.cfg.val_mode) and self.cfg.freeze_bn:
+        if self.cfg.mode == 'train' and self.cfg.freeze_bn:
             self.freeze_bn()
 
     def freeze_bn(self):

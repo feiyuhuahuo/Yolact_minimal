@@ -89,12 +89,7 @@ class Pad:
 
 
 class Resize:
-    """
-    The same resizing scheme as used in faster R-CNN https://arxiv.org/pdf/1506.01497.pdf
-    We resize the image so that the shorter side is min_size.
-    If the longer side is then over img_size, we instead resize the image so the long side is img_size.
-    """
-
+    # TODO: try to use a keep ratio resize.
     def __init__(self, img_size, resize_gt=True):
         self.resize_gt = resize_gt
         self.img_size = img_size
@@ -401,8 +396,8 @@ class NormalizeAndToRGB:
         img = img.astype(np.float32)
         img = (img - self.mean) / self.std
         img = img[:, :, (2, 1, 0)]
-
-        return img.astype(np.float32), masks, boxes, labels
+        img = np.transpose(img, (2, 0, 1))
+        return img, masks, boxes, labels
 
 
 class ValAug:
@@ -416,28 +411,7 @@ class ValAug:
         return self.augment(img, masks, boxes, labels)
 
 
-class TensorTransform:
-    # Transform that use tensors and does all operations on the GPU for super speed.
-
-    def __init__(self, img_size):
-        self.img_size = img_size
-        self.mean = torch.tensor([103.94, 116.78, 123.68]).float()[None, :, None, None]
-        self.std = torch.tensor([57.38, 57.12, 58.40]).float()[None, :, None, None]
-
-    def __call__(self, img):
-        self.mean = self.mean.to(img.device)
-        self.std = self.std.to(img.device)
-
-        # img assumed to be a pytorch BGR image with channel order [n, h, w, c]
-        img = img.permute(0, 3, 1, 2).contiguous()
-        img = F.interpolate(img, (self.img_size, self.img_size), mode='bilinear', align_corners=False)
-
-        img = (img - self.mean) / self.std
-        img = img[:, (2, 1, 0), :, :].contiguous()
-
-        return img  # Return value is in channel order [n, c, h, w] and RGB
-
-
+# TODO: these augmentations are not perfect, need to be improved.
 class TrainAug:
     def __init__(self, cfg):
         self.augment = Compose([ConvertFromInts(),

@@ -72,7 +72,7 @@ The results should be:
 # Evaluate with a specified number of images.
 python eval.py --trained_model=res101_coco_800000.pth --max_num=1000
 # Create a json file and then use the COCO API to evaluate the COCO detection result.
-python eval.py --trained_model=res101_coco_800000.pth --cocoapi
+python eval.py --trained_model=res101_coco_800000.pth --coco_api
 ```
 ## Detect
 ![Example 2](data/2.jpg)

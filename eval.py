@@ -3,29 +3,29 @@ import re
 import numpy as np
 import torch
 import time
-import pycocotools
 import argparse
+import torch.utils.data as data
+import pycocotools
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 from terminaltables import AsciiTable
 from collections import OrderedDict
 import torch.backends.cudnn as cudnn
 
-from data.coco import COCODetection
+from data.coco import COCODetection, val_collate
 from modules.build_yolact import Yolact
-from utils.functions import ProgressBar
 from utils.box_utils import bbox_iou, mask_iou
 from utils import timer
-from utils.output_utils import after_nms, nms
+from utils.output_utils import after_nms, nms, ProgressBar
 from data.config import get_config, COCO_LABEL_MAP
 
 parser = argparse.ArgumentParser(description='YOLACT COCO Evaluation')
 parser.add_argument('--gpu_id', default='0', type=str, help='The GPUs to use.')
 parser.add_argument('--img_size', type=int, default=550, help='The image size for validation.')
 parser.add_argument('--weight', type=str, default='weights/res101_coco_800000.pth', help='The validation model.')
-parser.add_argument('--test_bs', default='1', type=str, help='Test batch size.')
 parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
 parser.add_argument('--val_num', default=-1, type=int, help='The number of images for test, set to -1 for all.')
+parser.add_argument('--coco_api', action='store_true', help='Whether to use cocoapi to evaluate results.')
 
 
 class MakeJson:
@@ -139,38 +139,27 @@ class APDataObject:
         return sum(y_range) / len(y_range)
 
 
-def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, make_json, cocoapi=False):
-    gt = torch.tensor(gt, dtype=torch.float32)
-    gt_masks = torch.tensor(gt_masks, dtype=torch.float32).reshape(-1, h * w)
+def prep_metrics(ap_data, classes_p, confs_p, boxes_p, masks_p, gt, gt_masks, num_crowd,
+                 height, width, img_id, coco_api):
+    classes_p = list(classes_p.cpu().numpy().astype(int))
+    confs_p = list(confs_p.cpu().numpy().astype(float))
 
-    pred_classes, pred_confs, pred_boxes, pred_masks = after_nms(nms_outs, h, w)
-    if pred_classes.size(0) == 0:
-        return
+    if coco_api:
+        boxes_p = boxes_p.cpu().numpy()
+        masks_p = masks_p.cpu().numpy()
 
-    pred_classes = list(pred_classes.cpu().numpy().astype(int))
-    pred_confs = list(pred_confs.cpu().numpy().astype(float))
-    pred_masks = pred_masks.reshape(-1, h * w)
-
-    if cocoapi:
-        pred_boxes = pred_boxes.cpu().numpy()
-        pred_masks = pred_masks.reshape(-1, h, w).cpu().numpy()
-
-        for i in range(pred_masks.shape[0]):
+        for i in range(masks_p.shape[0]):
             # Make sure that the bounding box actually makes sense and a mask was produced
-            if (pred_boxes[i, 3] - pred_boxes[i, 1]) * (pred_boxes[i, 2] - pred_boxes[i, 0]) > 0:
-                make_json.add_bbox(image_id, pred_classes[i], pred_boxes[i, :], pred_confs[i])
-                make_json.add_mask(image_id, pred_classes[i], pred_masks[i, :, :], pred_confs[i])
+            if (boxes_p[i, 3] - boxes_p[i, 1]) * (boxes_p[i, 2] - boxes_p[i, 0]) > 0:
+                make_json.add_bbox(img_id, classes_p[i], boxes_p[i, :], confs_p[i])
+                make_json.add_mask(img_id, classes_p[i], masks_p[i, :, :], confs_p[i])
     else:
-        if cuda:
-            pred_boxes = pred_boxes.cuda()
-            pred_masks = pred_masks.cuda()
-            gt = gt.cuda()
-            gt_masks = gt_masks.cuda()
-
         gt_boxes = gt[:, :4]
-        gt_boxes[:, [0, 2]] *= w
-        gt_boxes[:, [1, 3]] *= h
+        gt_boxes[:, [0, 2]] *= width
+        gt_boxes[:, [1, 3]] *= height
         gt_classes = gt[:, 4].int().tolist()
+        gt_masks = gt_masks.reshape(-1, height * width)
+        masks_p = masks_p.reshape(-1, height * width)
 
         if num_crowd > 0:
             split = lambda x: (x[-num_crowd:], x[:-num_crowd])
@@ -178,12 +167,12 @@ def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, mak
             crowd_masks, gt_masks = split(gt_masks)
             crowd_classes, gt_classes = split(gt_classes)
 
-        mask_iou_cache = mask_iou(pred_masks, gt_masks)
-        bbox_iou_cache = bbox_iou(pred_boxes.float(), gt_boxes.float())
+        mask_iou_cache = mask_iou(masks_p, gt_masks)
+        bbox_iou_cache = bbox_iou(boxes_p.float(), gt_boxes.float())
 
         if num_crowd > 0:
-            crowd_mask_iou_cache = mask_iou(pred_masks, crowd_masks, iscrowd=True)
-            crowd_bbox_iou_cache = bbox_iou(pred_boxes.float(), crowd_boxes.float(), iscrowd=True)
+            crowd_mask_iou_cache = mask_iou(masks_p, crowd_masks, iscrowd=True)
+            crowd_bbox_iou_cache = bbox_iou(boxes_p.float(), crowd_boxes.float(), iscrowd=True)
         else:
             crowd_mask_iou_cache = None
             crowd_bbox_iou_cache = None
@@ -191,7 +180,7 @@ def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, mak
         iou_types = [('box', lambda i, j: bbox_iou_cache[i, j].item(), lambda i, j: crowd_bbox_iou_cache[i, j].item()),
                      ('mask', lambda i, j: mask_iou_cache[i, j].item(), lambda i, j: crowd_mask_iou_cache[i, j].item())]
 
-        for _class in set(pred_classes + gt_classes):
+        for _class in set(classes_p + gt_classes):
             num_gt_per_class = gt_classes.count(_class)
 
             for iouIdx in range(len(iou_thresholds)):
@@ -202,7 +191,7 @@ def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, mak
                     ap_obj = ap_data[iou_type][iouIdx][_class]
                     ap_obj.add_gt_positives(num_gt_per_class)
 
-                    for i, pred_class in enumerate(pred_classes):
+                    for i, pred_class in enumerate(classes_p):
                         if pred_class != _class:
                             continue
 
@@ -220,7 +209,7 @@ def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, mak
 
                         if max_match_idx >= 0:
                             gt_used[max_match_idx] = True
-                            ap_obj.push(pred_confs[i], True)
+                            ap_obj.push(confs_p[i], True)
                         else:
                             # If the detection matches a crowd, we can just ignore it
                             matched_crowd = False
@@ -240,7 +229,7 @@ def prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, image_id, mak
                             # same result as COCOEval. There aren't even that many crowd annotations to
                             # begin with, but accuracy is of the utmost importance.
                             if not matched_crowd:
-                                ap_obj.push(pred_confs[i], False)
+                                ap_obj.push(confs_p[i], False)
 
 
 def calc_map(ap_data, cfg):
@@ -280,57 +269,59 @@ def calc_map(ap_data, cfg):
     return table.table, row2, row3
 
 
-def evaluate(net, cfg, cocoapi=False):
-    dataset = COCODetection(cfg, val_mode=True)
-    ds = len(dataset) if cfg.val_num < 0 else min(cfg.val_num, len(dataset))
-    dataset_indices = list(range(len(dataset)))
-    dataset_indices = dataset_indices[:ds]
+def evaluate(net, cfg):
+    dataset = COCODetection(cfg, mode='val')
+    data_loader = data.DataLoader(dataset, 1, num_workers=4, shuffle=False, pin_memory=True, collate_fn=val_collate)
+    ds = len(data_loader)
     progress_bar = ProgressBar(40, ds)
-    make_json = MakeJson()
     timer.reset()
-    # For each class and iou, stores tuples (score, isPositive)
-    # Index ap_data[type][iouIdx][classIdx]
+
     ap_data = {'box': [[APDataObject() for _ in cfg.class_names] for _ in iou_thresholds],
                'mask': [[APDataObject() for _ in cfg.class_names] for _ in iou_thresholds]}
 
     with torch.no_grad():
-        for i, image_idx in enumerate(dataset_indices):
+        for i, (img, gt, gt_masks, num_crowd, height, width) in enumerate(data_loader):
             if i == 1:
                 timer.start()
 
-            img, gt, gt_masks, h, w, num_crowd = dataset.__getitem__(image_idx)
-
-            batch = img.unsqueeze(0)
             if cuda:
-                batch = batch.cuda()
+                img, gt, gt_masks = img.cuda(), gt.cuda(), gt_masks.cuda()
 
             with timer.counter('forward'):
-                net_outs = net(batch)
+                net_outs = net(img)
 
             with timer.counter('nms'):
-                nms_outs = nms(cfg, net_outs, cfg.traditional_nms)
+                nms_outs = nms(cfg, net_outs)
 
-            with timer.counter('prep_metrics'):
-                prep_metrics(ap_data, nms_outs, gt, gt_masks, h, w, num_crowd, dataset.ids[image_idx], make_json)
+            with timer.counter('after_nms'):
+                classes_p, confs_p, boxes_p, masks_p = after_nms(nms_outs, height, width)
+                if classes_p.size(0) == 0:
+                    continue
+
+            with timer.counter('metric'):
+                prep_metrics(ap_data, classes_p, confs_p, boxes_p, masks_p, gt, gt_masks, num_crowd,
+                             height, width, dataset.ids[i], cfg.coco_api)
 
             aa = time.perf_counter()
             if i > 0:
                 batch_time = aa - temp
                 timer.add_batch_time(batch_time)
-
-                t_t, t_d, t_f, t_nms, t_pm = timer.get_times(['batch', 'data', 'forward', 'nms', 'prep_metrics'])
-                fps, t_fps = 1 / (t_d + t_f + t_nms), 1 / t_t
-                bar_str = progress_bar.get_bar(i + 1)
-                print(f'\rTesting: {bar_str} {i + 1}/{ds}, fps: {fps:.2f} | total fps: {t_fps:.2f} | t_t: {t_t:.3f} | '
-                      f't_d: {t_d:.3f} | t_f: {t_f:.3f} | t_nms: {t_nms:.3f} | t_pm: {t_pm:.3f}', end='')
-
             temp = aa
 
-        if cocoapi:
+            if i > 0:
+                t_t, t_d, t_f, t_nms, t_an, t_me = timer.get_times(['batch', 'data', 'forward',
+                                                                    'nms', 'after_nms', 'metric'])
+                fps, t_fps = 1 / (t_d + t_f + t_nms + t_an), 1 / t_t
+                bar_str = progress_bar.get_bar(i + 1)
+                print(f'\rTesting: {bar_str} {i + 1}/{ds}, fps: {fps:.2f} | total fps: {t_fps:.2f} | '
+                      f't_t: {t_t:.3f} | t_d: {t_d:.3f} | t_f: {t_f:.3f} | t_nms: {t_nms:.3f} | '
+                      f't_after_nms: {t_an:.3f} | t_metric: {t_me:.3f}', end='')
+
+        if cfg.coco_api:
             make_json.dump()
             print(f'\nJson files dumped, saved in: \'results/\', start evaluting.')
 
-            gt_annotations = COCO(cfg.dataset.valid_info)
+            gt_annotations = COCO(cfg.val_ann)
             bbox_dets = gt_annotations.loadRes(f'results/bbox_detections.json')
             mask_dets = gt_annotations.loadRes(f'results/mask_detections.json')
 
@@ -353,18 +344,12 @@ def evaluate(net, cfg, cocoapi=False):
 
 iou_thresholds = [x / 100 for x in range(50, 100, 5)]
 cuda = torch.cuda.is_available()
+make_json = MakeJson()
 
 if __name__ == '__main__':
     args = parser.parse_args()
     args.cfg = re.findall(r'res.+_[a-z]+', args.weight)[0]
-    cfg = get_config(args, val_mode=True)
-
-    if cuda:
-        cudnn.benchmark = True
-        cudnn.fastest = True
-        torch.set_default_tensor_type('torch.cuda.FloatTensor')
-    else:
-        torch.set_default_tensor_type('torch.FloatTensor')
+    cfg = get_config(args, mode='val')
 
     net = Yolact(cfg)
     net.load_weights(cfg.weight, cuda)
@@ -372,6 +357,8 @@ if __name__ == '__main__':
     print(f'Model loaded with {cfg.weight}.\n')
 
     if cuda:
+        cudnn.benchmark = True
+        cudnn.fastest = True
         net = net.cuda()
 
     evaluate(net, cfg)

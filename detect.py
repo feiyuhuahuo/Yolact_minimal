@@ -1,131 +1,166 @@
 #!/usr/bin/env python 
 # -*- coding:utf-8 -*-
 import torch
-import torch.backends.cudnn as cudnn
 import argparse
-import glob
 import cv2
 import time
+import re
+import torch.utils.data as data
+import torch.backends.cudnn as cudnn
 
 from modules.build_yolact import Yolact
-from utils.augmentations import TensorTransform
-from utils.functions import ProgressBar
 from data.config import get_config
-from utils.output_utils import nms, after_nms, draw_img
+from data.coco import COCODetection, detect_collate
+from utils import timer
+from utils.output_utils import nms, after_nms, draw_img, ProgressBar
+from utils.augmentations import ValAug
 
-parser = argparse.ArgumentParser(description='YOLACT COCO Evaluation')
-parser.add_argument('--trained_model', default='weights/res101_coco_800000.pth', type=str)
-parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
-parser.add_argument('--hide_mask', default=False, action='store_true', help='Whether to display masks')
-parser.add_argument('--hide_bbox', default=False, action='store_true', help='Whether to display bboxes')
-parser.add_argument('--hide_score', default=False, action='store_true', help='Whether to display scores')
-parser.add_argument('--cutout', default=False, action='store_true', help='Whether to cut out each object')
-parser.add_argument('--show_lincomb', default=False, action='store_true',
-                    help='Whether to show the generating process of masks.')
-parser.add_argument('--no_crop', default=False, action='store_true',
-                    help='Do not crop output masks with the predicted bounding box.')
+parser = argparse.ArgumentParser(description='YOLACT Detection.')
+parser.add_argument('--gpu_id', default='0', type=str, help='The GPUs to use.')
+parser.add_argument('--weight', default='weights/res101_coco_800000.pth', type=str, help='The model for detection.')
 parser.add_argument('--image', default=None, type=str, help='The folder of images for detecting.')
-parser.add_argument('--video', default=None, type=str,
-                    help='The path of the video to evaluate. Pass a number to use the related webcam.')
+parser.add_argument('--video', default=None, type=str, help='The path of the video to evaluate.')
+parser.add_argument('--img_size', type=int, default=550, help='The image size for validation.')
+parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
+parser.add_argument('--hide_mask', default=False, action='store_true', help='Hide masks in results.')
+parser.add_argument('--hide_bbox', default=False, action='store_true', help='Hide boxes in results.')
+parser.add_argument('--hide_score', default=False, action='store_true', help='Hide scores in results.')
+parser.add_argument('--cutout', default=False, action='store_true', help='Cut out each object and save.')
+parser.add_argument('--show_lincomb', default=False, action='store_true', help='Show the generating process of masks.')
+parser.add_argument('--no_crop', default=False, action='store_true',
+                    help='Do not crop the output masks with the predicted bounding box.')
 parser.add_argument('--real_time', default=False, action='store_true', help='Show the detection results real-timely.')
 parser.add_argument('--visual_thre', default=0.3, type=float,
                     help='Detections with a score under this threshold will be removed.')
 
 args = parser.parse_args()
-cfg = get_config(args)
+args.cfg = re.findall(r'res.+_[a-z]+', args.weight)[0]
+cfg = get_config(args, mode='detect')
+cuda = torch.cuda.is_available()
+
+net = Yolact(cfg)
+net.load_weights(cfg.weight, cuda)
+net.eval()
+print(f'Model loaded with {cfg.weight}.\n')
+
+if cuda:
+    cudnn.benchmark = True
+    cudnn.fastest = True
+    net = net.cuda()
 
 with torch.no_grad():
-    cuda = torch.cuda.is_available()
-    if cuda:
-        cudnn.benchmark = True
-        cudnn.fastest = True
-        torch.set_default_tensor_type('torch.cuda.FloatTensor')
-    else:
-        torch.set_default_tensor_type('torch.FloatTensor')
-
-    net = Yolact(cfg)
-    net.load_weights('weights/' + args.trained_model, cuda)
-    net.eval()
-    print('Model loaded.\n')
-
-    if cuda:
-        net = net.cuda()
-
     # detect images
-    if args.image is not None:
-        images = glob.glob(args.image + '/*.jpg')
+    if cfg.image is not None:
+        dataset = COCODetection(cfg, mode='detect')
+        data_loader = data.DataLoader(dataset, 1, num_workers=4, shuffle=False,
+                                      pin_memory=True, collate_fn=detect_collate)
+        ds = len(data_loader)
+        progress_bar = ProgressBar(40, ds)
+        timer.reset()
 
-        for i, one_img in enumerate(images):
-            img_name = one_img.split('/')[-1]
-            img_origin = cv2.imread(one_img)
-            img_tensor = torch.from_numpy(img_origin).float()
+        for i, (img, img_origin, img_name) in enumerate(data_loader):
+            if i == 1:
+                timer.start()
 
             if cuda:
-                img_tensor = img_tensor.cuda()
-            img_h, img_w = img_tensor.shape[0], img_tensor.shape[1]
-            img_trans = TensorTransform(cfg.img_size)(img_tensor.unsqueeze(0))
+                img = img.cuda()
 
-            net_outs = net(img_trans)
-            nms_outs = nms(net_outs, args.traditional_nms)
+            img_h, img_w = img_origin.shape[0:2]
 
-            show_lincomb = bool(args.show_lincomb and args.image_path)
-            results = after_nms(nms_outs, img_h, img_w, show_lincomb=show_lincomb, crop_masks=not args.no_crop,
-                                visual_thre=args.visual_thre, img_name=img_name)
+            with timer.counter('forward'):
+                net_outs = net(img)
 
-            img_numpy = draw_img(results, img_origin, img_name, args)
-            cv2.imwrite(f'results/images/{img_name}', img_numpy)
-            print(f'\r{i + 1}/{len(images)}', end='')
+            with timer.counter('nms'):
+                nms_outs = nms(cfg, net_outs)
 
-        print('\nDone.')
+            with timer.counter('after_nms'):
+                results = after_nms(nms_outs, img_h, img_w, cfg, img_name=img_name)
+
+            with timer.counter('save_img'):
+                img_numpy = draw_img(results, img_origin, cfg, img_name=img_name)
+                cv2.imwrite(f'results/images/{img_name}', img_numpy)
+
+            aa = time.perf_counter()
+            if i > 0:
+                batch_time = aa - temp
+                timer.add_batch_time(batch_time)
+            temp = aa
+
+            if i > 0:
+                t_t, t_d, t_f, t_nms, t_an, t_si = timer.get_times(['batch', 'data', 'forward',
+                                                                    'nms', 'after_nms', 'save_img'])
+                fps, t_fps = 1 / (t_d + t_f + t_nms + t_an), 1 / t_t
+                bar_str = progress_bar.get_bar(i + 1)
+                print(f'\rTesting: {bar_str} {i + 1}/{ds}, fps: {fps:.2f} | total fps: {t_fps:.2f} | '
+                      f't_t: {t_t:.3f} | t_d: {t_d:.3f} | t_f: {t_f:.3f} | t_nms: {t_nms:.3f} | '
+                      f't_after_nms: {t_an:.3f} | t_save_img: {t_si:.3f}', end='')
+
+        print('\nFinished.')
 
     # detect videos
-    elif args.video is not None:
-        vid = cv2.VideoCapture('videos/' + args.video)
+    elif cfg.video is not None:
+        vid = cv2.VideoCapture(cfg.video)
 
         target_fps = round(vid.get(cv2.CAP_PROP_FPS))
         frame_width = round(vid.get(cv2.CAP_PROP_FRAME_WIDTH))
         frame_height = round(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
         num_frames = round(vid.get(cv2.CAP_PROP_FRAME_COUNT))
 
-        name = args.video.split('/')[-1]
+        name = cfg.video.split('/')[-1]
         video_writer = cv2.VideoWriter(f'results/videos/{name}', cv2.VideoWriter_fourcc(*"mp4v"), target_fps,
                                        (frame_width, frame_height))
 
         progress_bar = ProgressBar(40, num_frames)
+        timer.reset()
+        t_fps = 0
 
-        time_here = 0
-        fps = 0
         for i in range(num_frames):
-            frame_origin = torch.from_numpy(vid.read()[1]).float()
+            if i == 1:
+                timer.start()
+
+            frame_origin = vid.read()[1]
+            img_h, img_w = frame_origin.shape[0:2]
+            frame_trans, _, _, _ = ValAug(cfg)(frame_origin, None, None, None)
+
+            frame_tensor = torch.tensor(frame_trans).float()
             if cuda:
-                frame_origin = frame_origin.cuda()
-            img_h, img_w = frame_origin.shape[0], frame_origin.shape[1]
-            frame_trans = TensorTransform(cfg.img_size)(frame_origin.unsqueeze(0))
-            net_outs = net(frame_trans)
-            nms_outs = nms(net_outs, args.traditional_nms)
-            results = after_nms(nms_outs, img_h, img_w, crop_masks=not args.no_crop, visual_thre=args.visual_thre)
+                frame_tensor = frame_tensor.cuda()
 
-            temp = time_here
-            time_here = time.time()
+            with timer.counter('forward'):
+                net_outs = net(frame_tensor.unsqueeze(0))
 
-            if i > 0:
-                frame_times.add(time_here - temp)
-                fps = 1 / frame_times.get_avg()
+            with timer.counter('nms'):
+                nms_outs = nms(cfg, net_outs)
 
-            frame_numpy = draw_img(results, frame_origin, args, fps=fps)
+            with timer.counter('after_nms'):
+                results = after_nms(nms_outs, img_h, img_w, cfg)
 
-            if args.real_time:
+            with timer.counter('save_img'):
+                frame_numpy = draw_img(results, frame_origin, cfg, fps=t_fps)
+
+            if cfg.real_time:
                 cv2.imshow('Detection', frame_numpy)
                 cv2.waitKey(1)
             else:
                 video_writer.write(frame_numpy)
 
-            progress = (i + 1) / num_frames * 100
-            progress_bar.get_bar(i + 1)
-            print(f'\rDetecting: {repr(progress_bar)} {i + 1} / {num_frames} ({progress:.2f}%) {fps:.2f} fps', end='')
+            aa = time.perf_counter()
+            if i > 0:
+                batch_time = aa - temp
+                timer.add_batch_time(batch_time)
+            temp = aa
 
-        if not args.real_time:
-            print(f'\n\nDone, saved in: results/videos/{name}')
+            if i > 0:
+                t_t, t_d, t_f, t_nms, t_an, t_si = timer.get_times(['batch', 'data', 'forward',
+                                                                    'nms', 'after_nms', 'save_img'])
+                fps, t_fps = 1 / (t_d + t_f + t_nms + t_an), 1 / t_t
+                bar_str = progress_bar.get_bar(i + 1)
+                print(f'\rDetecting: {bar_str} {i + 1}/{num_frames}, fps: {fps:.2f} | total fps: {t_fps:.2f} | '
+                      f't_t: {t_t:.3f} | t_d: {t_d:.3f} | t_f: {t_f:.3f} | t_nms: {t_nms:.3f} | '
+                      f't_after_nms: {t_an:.3f} | t_save_img: {t_si:.3f}', end='')
+
+        if not cfg.real_time:
+            print(f'\n\nFinished, saved in: results/videos/{name}')
 
         vid.release()
         video_writer.release()

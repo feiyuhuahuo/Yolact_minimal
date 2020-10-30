@@ -55,7 +55,7 @@ def fast_nms(box_thre, coef_thre, class_thre, cfg, second_threshold=False):
     return box_nms, coef_nms, class_ids, class_nms
 
 
-def tradi_nms(boxes, masks, scores, cfg):
+def traditional_nms(boxes, masks, scores, cfg):
     num_classes = scores.size(0)
 
     idx_lst = []
@@ -99,7 +99,7 @@ def tradi_nms(boxes, masks, scores, cfg):
     return boxes[idx] / cfg.img_size, masks[idx], class_ids, scores
 
 
-def nms(cfg, net_outs, traditional_nms=False):
+def nms(cfg, net_outs):
     box_p = net_outs['box'].squeeze()  # [19248, 4]
     class_p = net_outs['class'].squeeze()  # [19248, 81]
     coef_p = net_outs['coef'].squeeze()  # [19248, 32]
@@ -123,10 +123,10 @@ def nms(cfg, net_outs, traditional_nms=False):
     if class_thre.size(1) == 0:
         result = None
     else:
-        if not traditional_nms:
+        if not cfg.traditional_nms:
             box_thre, coef_thre, class_ids, class_thre = fast_nms(box_thre, coef_thre, class_thre, cfg)
         else:
-            box_thre, coef_thre, class_ids, class_thre = tradi_nms(box_thre, coef_thre, class_thre, cfg)
+            box_thre, coef_thre, class_ids, class_thre = traditional_nms(box_thre, coef_thre, class_thre, cfg)
 
         result = {'box': box_thre, 'coef': coef_thre, 'class_ids': class_ids, 'class': class_thre}
 
@@ -136,12 +136,12 @@ def nms(cfg, net_outs, traditional_nms=False):
     return result
 
 
-def after_nms(nms_outs, img_h, img_w, show_lincomb=False, crop_masks=True, visual_thre=0, img_name=None):
+def after_nms(nms_outs, img_h, img_w, cfg=None, img_name=None):
     if nms_outs is None:
-        return [torch.Tensor()] * 4  # Warning, this is 4 copies of the same thing
+        return [torch.Tensor()] * 4
 
-    if visual_thre > 0:
-        keep = nms_outs['class'] > visual_thre
+    if cfg and cfg.visual_thre > 0:
+        keep = nms_outs['class'] >= cfg.visual_thre
 
         for k in nms_outs:
             if k != 'proto':
@@ -154,23 +154,19 @@ def after_nms(nms_outs, img_h, img_w, show_lincomb=False, crop_masks=True, visua
     boxes = nms_outs['box']
     classes = nms_outs['class']
     coefs = nms_outs['coef']
-
-    # At this points masks is only the coefficients
     proto_data = nms_outs['proto']
 
-    if show_lincomb:
+    if cfg and cfg.show_lincomb:
         draw_lincomb(proto_data, coefs, img_name)
 
     masks = torch.sigmoid(torch.matmul(proto_data, coefs.t()))
 
-    # Crop masks by boxes
-    if crop_masks:
+    if not cfg or not cfg.no_crop:  # Crop masks by boxes
         masks = crop(masks, boxes)
 
     masks = masks.permute(2, 0, 1).contiguous()
     masks = F.interpolate(masks.unsqueeze(0), (img_h, img_w), mode='bilinear', align_corners=False).squeeze(0)
-    # Binarize the masks
-    masks.gt_(0.5)
+    masks.gt_(0.5)  # Binarize the masks
 
     boxes[:, 0], boxes[:, 2] = sanitize_coordinates(boxes[:, 0], boxes[:, 2], img_w)
     boxes[:, 1], boxes[:, 3] = sanitize_coordinates(boxes[:, 1], boxes[:, 3], img_h)
@@ -182,7 +178,6 @@ def after_nms(nms_outs, img_h, img_w, show_lincomb=False, crop_masks=True, visua
 def draw_lincomb(proto_data, masks, img_name):
     for kdx in range(1):
         jdx = kdx + 0
-        import matplotlib.pyplot as plt
         coeffs = masks[jdx, :].cpu().numpy()
         idx = np.argsort(-np.abs(coeffs))
 
@@ -207,26 +202,27 @@ def draw_lincomb(proto_data, masks, img_name):
                     proto_data[:, :, idx[i]])).cpu().numpy() * coeffs_sort[i]
                 arr_run[y * p_h:(y + 1) * p_h, x * p_w:(x + 1) * p_w] = (running_total_nonlin > 0.5).astype(np.float)
 
-        plt.imshow(arr_img)
-        plt.savefig(f'results/images/lincomb_{img_name}')
+        arr_img = ((arr_img + 1) * 127.5).astype('uint8')
+        arr_img = cv2.applyColorMap(arr_img, cv2.COLORMAP_WINTER)
+        cv2.imwrite(f'results/images/lincomb_{img_name}', arr_img)
 
 
-def draw_img(results, img_origin, img_name, args, fps=None):
-    class_ids, classes, boxes, masks = [x.cpu().numpy() for x in results]
+def draw_img(results, img_origin, cfg, img_name=None, fps=None):
+    class_ids, classes, boxes, masks = [aa.cpu().numpy() for aa in results]
     num_detected = class_ids.shape[0]
 
     if num_detected == 0:
-        # No detections found so just output the original image
         return img_origin
 
-    if not args.hide_mask:
+    img_fused = img_origin
+    if not cfg.hide_mask:
         masks_semantic = masks * (class_ids[:, None, None] + 1)  # expand class_ids' shape for broadcasting
         # The color of the overlap area is different because of the '%' operation.
         masks_semantic = masks_semantic.astype('int').sum(axis=0) % (cfg.num_classes - 1)
         color_masks = COLORS[masks_semantic].astype('uint8')
         img_fused = cv2.addWeighted(color_masks, 0.4, img_origin, 0.6, gamma=0)
 
-        if args.cutout:
+        if cfg.cutout:
             for i in range(num_detected):
                 one_obj = np.tile(masks[i], (3, 1, 1)).transpose((1, 2, 0))
                 one_obj = one_obj * img_origin
@@ -240,21 +236,21 @@ def draw_img(results, img_origin, img_name, args, fps=None):
     thickness = 1
     font = cv2.FONT_HERSHEY_DUPLEX
 
-    if not args.hide_bbox:
+    if not cfg.hide_bbox:
         for i in reversed(range(num_detected)):
             x1, y1, x2, y2 = boxes[i, :]
 
             color = COLORS[class_ids[i] + 1].tolist()
             cv2.rectangle(img_fused, (x1, y1), (x2, y2), color, thickness)
 
-            class_name = cfg.dataset.class_names[class_ids[i]]
-            text_str = f'{class_name}: {classes[i]:.2f}' if not args.hide_score else class_name
+            class_name = cfg.class_names[class_ids[i]]
+            text_str = f'{class_name}: {classes[i]:.2f}' if not cfg.hide_score else class_name
 
             text_w, text_h = cv2.getTextSize(text_str, font, scale, thickness)[0]
             cv2.rectangle(img_fused, (x1, y1), (x1 + text_w, y1 + text_h + 5), color, -1)
             cv2.putText(img_fused, text_str, (x1, y1 + 15), font, scale, (255, 255, 255), thickness, cv2.LINE_AA)
 
-    if args.real_time:
+    if cfg.real_time:
         fps_str = f'fps: {fps:.2f}'
         text_w, text_h = cv2.getTextSize(fps_str, font, scale, thickness)[0]
         # Create a shadow to show the fps more clearly
@@ -264,3 +260,28 @@ def draw_img(results, img_origin, img_name, args, fps=None):
         cv2.putText(img_fused, fps_str, (0, text_h + 2), font, scale, (255, 255, 255), thickness, cv2.LINE_AA)
 
     return img_fused
+
+
+class ProgressBar:
+    def __init__(self, length, max_val):
+        self.max_val = max_val
+        self.length = length
+        self.cur_val = 0
+
+        self.cur_num_bars = -1
+        self.update_str()
+
+    def update_str(self):
+        num_bars = int(self.length * (self.cur_val / self.max_val))
+
+        if num_bars != self.cur_num_bars:
+            self.cur_num_bars = num_bars
+            self.string = '█' * num_bars + '░' * (self.length - num_bars)
+
+    def get_bar(self, new_val):
+        self.cur_val = new_val
+
+        if self.cur_val > self.max_val:
+            self.cur_val = self.max_val
+        self.update_str()
+        return self.string
