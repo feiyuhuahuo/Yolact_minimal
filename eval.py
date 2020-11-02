@@ -12,12 +12,12 @@ from terminaltables import AsciiTable
 from collections import OrderedDict
 import torch.backends.cudnn as cudnn
 
-from data.coco import COCODetection, val_collate
+from utils.coco import COCODetection, val_collate
 from modules.build_yolact import Yolact
 from utils.box_utils import bbox_iou, mask_iou
 from utils import timer
 from utils.output_utils import after_nms, nms, ProgressBar
-from data.config import get_config, COCO_LABEL_MAP
+from config import get_config, COCO_LABEL_MAP
 
 parser = argparse.ArgumentParser(description='YOLACT COCO Evaluation')
 parser.add_argument('--gpu_id', default='0', type=str, help='The GPUs to use.')
@@ -139,97 +139,83 @@ class APDataObject:
         return sum(y_range) / len(y_range)
 
 
-def prep_metrics(ap_data, classes_p, confs_p, boxes_p, masks_p, gt, gt_masks, num_crowd,
-                 height, width, img_id, coco_api):
-    classes_p = list(classes_p.cpu().numpy().astype(int))
-    confs_p = list(confs_p.cpu().numpy().astype(float))
+def prep_metrics(ap_data, classes_p, confs_p, boxes_p, masks_p, gt, gt_masks, num_crowd, height, width):
+    gt_boxes = gt[:, :4]
+    gt_boxes[:, [0, 2]] *= width
+    gt_boxes[:, [1, 3]] *= height
+    gt_classes = gt[:, 4].int().tolist()
+    gt_masks = gt_masks.reshape(-1, height * width)
+    masks_p = masks_p.reshape(-1, height * width)
 
-    if coco_api:
-        boxes_p = boxes_p.cpu().numpy()
-        masks_p = masks_p.cpu().numpy()
+    if num_crowd > 0:
+        split = lambda x: (x[-num_crowd:], x[:-num_crowd])
+        crowd_boxes, gt_boxes = split(gt_boxes)
+        crowd_masks, gt_masks = split(gt_masks)
+        crowd_classes, gt_classes = split(gt_classes)
 
-        for i in range(masks_p.shape[0]):
-            # Make sure that the bounding box actually makes sense and a mask was produced
-            if (boxes_p[i, 3] - boxes_p[i, 1]) * (boxes_p[i, 2] - boxes_p[i, 0]) > 0:
-                make_json.add_bbox(img_id, classes_p[i], boxes_p[i, :], confs_p[i])
-                make_json.add_mask(img_id, classes_p[i], masks_p[i, :, :], confs_p[i])
+    mask_iou_cache = mask_iou(masks_p, gt_masks)
+    bbox_iou_cache = bbox_iou(boxes_p.float(), gt_boxes.float())
+
+    if num_crowd > 0:
+        crowd_mask_iou_cache = mask_iou(masks_p, crowd_masks, iscrowd=True)
+        crowd_bbox_iou_cache = bbox_iou(boxes_p.float(), crowd_boxes.float(), iscrowd=True)
     else:
-        gt_boxes = gt[:, :4]
-        gt_boxes[:, [0, 2]] *= width
-        gt_boxes[:, [1, 3]] *= height
-        gt_classes = gt[:, 4].int().tolist()
-        gt_masks = gt_masks.reshape(-1, height * width)
-        masks_p = masks_p.reshape(-1, height * width)
+        crowd_mask_iou_cache = None
+        crowd_bbox_iou_cache = None
 
-        if num_crowd > 0:
-            split = lambda x: (x[-num_crowd:], x[:-num_crowd])
-            crowd_boxes, gt_boxes = split(gt_boxes)
-            crowd_masks, gt_masks = split(gt_masks)
-            crowd_classes, gt_classes = split(gt_classes)
+    iou_types = [('box', lambda i, j: bbox_iou_cache[i, j].item(), lambda i, j: crowd_bbox_iou_cache[i, j].item()),
+                 ('mask', lambda i, j: mask_iou_cache[i, j].item(), lambda i, j: crowd_mask_iou_cache[i, j].item())]
 
-        mask_iou_cache = mask_iou(masks_p, gt_masks)
-        bbox_iou_cache = bbox_iou(boxes_p.float(), gt_boxes.float())
+    for _class in set(classes_p + gt_classes):
+        num_gt_per_class = gt_classes.count(_class)
 
-        if num_crowd > 0:
-            crowd_mask_iou_cache = mask_iou(masks_p, crowd_masks, iscrowd=True)
-            crowd_bbox_iou_cache = bbox_iou(boxes_p.float(), crowd_boxes.float(), iscrowd=True)
-        else:
-            crowd_mask_iou_cache = None
-            crowd_bbox_iou_cache = None
+        for iouIdx in range(len(iou_thresholds)):
+            iou_threshold = iou_thresholds[iouIdx]
 
-        iou_types = [('box', lambda i, j: bbox_iou_cache[i, j].item(), lambda i, j: crowd_bbox_iou_cache[i, j].item()),
-                     ('mask', lambda i, j: mask_iou_cache[i, j].item(), lambda i, j: crowd_mask_iou_cache[i, j].item())]
+            for iou_type, iou_func, crowd_func in iou_types:
+                gt_used = [False] * len(gt_classes)
+                ap_obj = ap_data[iou_type][iouIdx][_class]
+                ap_obj.add_gt_positives(num_gt_per_class)
 
-        for _class in set(classes_p + gt_classes):
-            num_gt_per_class = gt_classes.count(_class)
+                for i, pred_class in enumerate(classes_p):
+                    if pred_class != _class:
+                        continue
 
-            for iouIdx in range(len(iou_thresholds)):
-                iou_threshold = iou_thresholds[iouIdx]
-
-                for iou_type, iou_func, crowd_func in iou_types:
-                    gt_used = [False] * len(gt_classes)
-                    ap_obj = ap_data[iou_type][iouIdx][_class]
-                    ap_obj.add_gt_positives(num_gt_per_class)
-
-                    for i, pred_class in enumerate(classes_p):
-                        if pred_class != _class:
+                    max_iou_found = iou_threshold
+                    max_match_idx = -1
+                    for j, gt_class in enumerate(gt_classes):
+                        if gt_used[j] or gt_class != _class:
                             continue
 
-                        max_iou_found = iou_threshold
-                        max_match_idx = -1
-                        for j, gt_class in enumerate(gt_classes):
-                            if gt_used[j] or gt_class != _class:
-                                continue
+                        iou = iou_func(i, j)
 
-                            iou = iou_func(i, j)
+                        if iou > max_iou_found:
+                            max_iou_found = iou
+                            max_match_idx = j
 
-                            if iou > max_iou_found:
-                                max_iou_found = iou
-                                max_match_idx = j
+                    if max_match_idx >= 0:
+                        gt_used[max_match_idx] = True
+                        ap_obj.push(confs_p[i], True)
+                    else:
+                        # If the detection matches a crowd, we can just ignore it
+                        matched_crowd = False
 
-                        if max_match_idx >= 0:
-                            gt_used[max_match_idx] = True
-                            ap_obj.push(confs_p[i], True)
-                        else:
-                            # If the detection matches a crowd, we can just ignore it
-                            matched_crowd = False
+                        if num_crowd > 0:
+                            for j in range(len(crowd_classes)):
+                                if crowd_classes[j] != _class:
+                                    continue
 
-                            if num_crowd > 0:
-                                for j in range(len(crowd_classes)):
-                                    if crowd_classes[j] != _class:
-                                        continue
+                                iou = crowd_func(i, j)
 
-                                    iou = crowd_func(i, j)
+                                if iou > iou_threshold:
+                                    matched_crowd = True
+                                    break
 
-                                    if iou > iou_threshold:
-                                        matched_crowd = True
-                                        break
-
-                            # All this crowd code so that we can make sure that our eval code gives the
-                            # same result as COCOEval. There aren't even that many crowd annotations to
-                            # begin with, but accuracy is of the utmost importance.
-                            if not matched_crowd:
-                                ap_obj.push(confs_p[i], False)
+                        # All this crowd code so that we can make sure that our eval code gives the
+                        # same result as COCOEval. There aren't even that many crowd annotations to
+                        # begin with, but accuracy is of the utmost importance.
+                        if not matched_crowd:
+                            ap_obj.push(confs_p[i], False)
 
 
 def calc_map(ap_data, cfg):
@@ -251,6 +237,7 @@ def calc_map(ap_data, cfg):
         for i, threshold in enumerate(iou_thresholds):
             mAP = sum(aps[i][iou_type]) / len(aps[i][iou_type]) * 100 if len(aps[i][iou_type]) > 0 else 0
             all_maps[iou_type][int(threshold * 100)] = mAP
+
         all_maps[iou_type]['all'] = (sum(all_maps[iou_type].values()) / (len(all_maps[iou_type].values()) - 1))
 
     row1 = list(all_maps['box'].keys())
@@ -299,8 +286,19 @@ def evaluate(net, cfg):
                     continue
 
             with timer.counter('metric'):
-                prep_metrics(ap_data, classes_p, confs_p, boxes_p, masks_p, gt, gt_masks, num_crowd,
-                             height, width, dataset.ids[i], cfg.coco_api)
+                classes_p = list(classes_p.cpu().numpy().astype(int))
+                confs_p = list(confs_p.cpu().numpy().astype(float))
+
+                if cfg.coco_api:
+                    boxes_p = boxes_p.cpu().numpy()
+                    masks_p = masks_p.cpu().numpy()
+
+                    for j in range(masks_p.shape[0]):
+                        if (boxes_p[j, 3] - boxes_p[j, 1]) * (boxes_p[j, 2] - boxes_p[j, 0]) > 0:
+                            make_json.add_bbox(dataset.ids[i], classes_p[j], boxes_p[j, :], confs_p[j])
+                            make_json.add_mask(dataset.ids[i], classes_p[j], masks_p[j, :, :], confs_p[j])
+                else:
+                    prep_metrics(ap_data, classes_p, confs_p, boxes_p, masks_p, gt, gt_masks, num_crowd, height, width)
 
             aa = time.perf_counter()
             if i > 0:

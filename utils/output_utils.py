@@ -3,7 +3,7 @@ import cv2
 from utils.box_utils import crop, sanitize_coordinates, decode, jaccard
 import torch
 import numpy as np
-from data.config import COLORS
+from config import COLORS
 from build_stuff.cython_nms import nms as cnms
 
 
@@ -15,8 +15,8 @@ def fast_nms(box_thre, coef_thre, class_thre, cfg, second_threshold=False):
 
     num_classes, num_dets = idx.size()
 
-    box_thre = box_thre[idx.view(-1), :].view(num_classes, num_dets, 4)  # [80, 64, 4]
-    coef_thre = coef_thre[idx.view(-1), :].view(num_classes, num_dets, -1)  # [80, 64, 32]
+    box_thre = box_thre[idx.reshape(-1), :].reshape(num_classes, num_dets, 4)  # [80, 64, 4]
+    coef_thre = coef_thre[idx.reshape(-1), :].reshape(num_classes, num_dets, -1)  # [80, 64, 32]
 
     iou = jaccard(box_thre, box_thre)
     iou.triu_(diagonal=1)
@@ -156,7 +156,7 @@ def after_nms(nms_outs, img_h, img_w, cfg=None, img_name=None):
     coefs = nms_outs['coef']
     proto_data = nms_outs['proto']
 
-    if cfg and cfg.show_lincomb:
+    if cfg and cfg.save_lincomb:
         draw_lincomb(proto_data, coefs, img_name)
 
     masks = torch.sigmoid(torch.matmul(proto_data, coefs.t()))

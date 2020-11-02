@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from data.config import mask_proto_net, extra_head_net
+from config import mask_proto_net, extra_head_net
 from modules.backbone import construct_backbone
 from utils.box_utils import make_anchors
 

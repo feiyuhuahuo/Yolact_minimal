@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from utils.box_utils import match, crop
-import pdb
 
 
 class Multi_Loss(nn.Module):

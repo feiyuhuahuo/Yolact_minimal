@@ -65,7 +65,7 @@ def match(cfg, box_gt, priors, class_gt, crowd_boxes):
 
     # For the max IoU prior for each gt box, set its IoU to 2. This ensures that it won't be filtered
     # in the threshold step even if the IoU is under the negative threshold. This is because that we want
-    # at least one prior to match with each gt box or else we'd be wasting training data.
+    # at least one prior to match with each gt box or else we'd be wasting training readme_imgs.
     each_prior_max.index_fill_(0, each_box_index, 2)
 
     # Set the index of the pair (prior, gt) we set the overlap for above.

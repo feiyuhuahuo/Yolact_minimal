@@ -87,6 +87,7 @@ class COCODetection(data.Dataset):
             assert len(target) > 0, 'No annotation in this image!'
             scale = np.array([width, height, width, height])
             box_list, mask_list = [], []
+
             for aa in target:
                 bbox = aa['bbox']
 

@@ -6,7 +6,11 @@ import os.path
 import json
 import pycocotools.mask
 import numpy as np
-from data.config import pascal_sbd_dataset
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--folder_path', help='The path of pascal_sbd folder.')
+args = parser.parse_args()
 
 
 def mask2bbox(mask):
@@ -18,8 +22,8 @@ def mask2bbox(mask):
     return cmin, rmin, cmax - cmin, rmax - rmin
 
 
-img_path = pascal_sbd_dataset.train_images
-root_path = img_path.split('img')[0]
+root_path = args.folder_path
+img_path = root_path + '/img'
 inst_path = root_path + '/inst'
 
 img_name_fmt = '%s.jpg'

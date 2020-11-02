@@ -16,10 +16,10 @@ import glob
 from utils import timer
 from modules.build_yolact import Yolact
 from modules.multi_loss import Multi_Loss
-from data.config import get_config
-from data.coco import COCODetection
+from config import get_config
+from utils.coco import COCODetection
 from eval import evaluate
-from data.coco import train_collate
+from utils.coco import train_collate
 
 parser = argparse.ArgumentParser(description='Yolact Training Script')
 parser.add_argument('--local_rank', type=int)
@@ -102,7 +102,7 @@ if cuda:
     train_sampler = DistributedSampler(dataset, shuffle=True)
 
 # shuffle must be False if sampler is specified
-data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=cfg.bs_per_gpu, shuffle=(train_sampler is None),
+data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=cfg.bs_per_gpu // 2, shuffle=(train_sampler is None),
                               collate_fn=train_collate, pin_memory=True, sampler=train_sampler)
 
 step_index = 0

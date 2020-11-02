@@ -2,20 +2,24 @@
 Minimal PyTorch implementation of [Yolact:《YOLACT: Real-time Instance Segmentation》](https://arxiv.org/abs/1904.02689).  
 The original project is [here](https://github.com/dbolya/yolact).  
 
-This implementation simplified the original code, preserved the main function and made the network easy to understand.   
+This implementation simplified the original code, preserved the main function and made the network easy to understand.  
+This implementation has not been updated to Yolact++.  
 
-Following instruction is based on resnet-101.  
 ### The network structure.  
-![Example 0](data/network.png)
+![Example 0](readme_imgs/network.png)
 
 ## Environments  
-PyTorch >= 1.1.  
-Python >= 3.6.  
-tensorboardX  
+PyTorch >= 1.1  
+Python >= 3.6  
+tensooardX  
 Other common packages.  
 
 ## Prepare
-- Download COCO 2017 datasets, modify the paths of training and evalution datasets in `data/config.py`. 
+- Build cython-nms  
+```Shell
+python build_stuff/setup.py build_ext --inplace
+```
+- Download COCO 2017 datasets, modify the root path in 'res101_coco' in `config.py`. 
 - Download weights.
 
 Yolact trained weights.  
@@ -34,26 +38,24 @@ ImageNet pre-trained weights.
 
 
 ## Train
-python setup.py build_ext --inplace
-Note: this project may not support multi-GPU training well. Due to the lack of device resource, I can't check this at present.
-
-python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --train_bs=8 --val_interval=3000
 ```Shell
-# Train with resnet101 backbone on coco2017 with a batch size of 8 (default).
-python train.py --config=res101_coco_config
-# Train with resnet50 backbone on coco2017 with a batch size of 8.
-python train.py --config=res50_coco_config
-# Train with different batch_size (remember to set freeze_bn=True in `config.py` when the batch_size is smaller than 4).
-# You might also tune the learning rate and learning rate decay by yourself.
-python train.py --config=res101_coco_config --batch_size=4
+# Train with resnet101 backbone on one GPU with a batch size of 8 (default).
+python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --train_bs=8
+# Train on multiple GPUs (i.e. two GPUs, 8 images per GPU).
+export CUDA_VISIBLE_DEVICES=0,1
+python -m torch.distributed.launch --nproc_per_node=2 --master_port=$((RANDOM)) train.py --train_bs=16
+# Train with other configurations (res101_coco, res50_coco, res50_pascal, res101_custom, res50_custom, in total).
+python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --cfg=res50_coco
+# Train with different batch_size (freeze_bn will be set as True in `config.py` when the batch_size is smaller than 4).
+python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --train_bs=4
 # Train with different image size (anchor settings related to image size will be adjusted automatically).
-python train.py --config=res101_coco_config --img_size=400
+python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --img_size=400
 # Resume training with the latest trained model.
-python train.py --config=res101_coco_config --resume latest
+python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --resume latest
 # Resume training with a specified model.
-python train.py --config=res101_coco_config --resume latest_res101_coco_35000.pth
+python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --resume latest_res101_coco_35000.pth
 # Set evalution interval during training, set -1 to disable it.  
-python train.py --config=res101_coco_config --val_interval 20000
+python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --val_interval 8000
 ```
 ## Use tensorboard
 ```Shell
@@ -62,48 +64,60 @@ tensorboard --logdir=tensorboard_log
 
 ## Evalution
 ```Shell
-# Evaluate on COCO val2017 (configs will be parsed according to the model name).
-python eval.py --trained_model=res101_coco_800000.pth
+# Evaluate on COCO val2017 (configuration will be parsed according to the model name).
+python eval.py --weight=res101_coco_800000.pth
 ```
-The results should be:
-![Example 1](data/mAP.png)
+- The result should be:  
+![Example 1](readme_imgs/mAP.png)
 
 ```Shell
 # Evaluate with a specified number of images.
-python eval.py --trained_model=res101_coco_800000.pth --max_num=1000
+python eval.py --weight=res101_coco_800000.pth --val_num=1000
+# Evaluate with traditional nms.
+python eval.py --weight=res101_coco_800000.pth --traditional_nms
 # Create a json file and then use the COCO API to evaluate the COCO detection result.
-python eval.py --trained_model=res101_coco_800000.pth --coco_api
+python eval.py --weight=res101_coco_800000.pth --coco_api
 ```
 ## Detect
-![Example 2](data/2.jpg)
-![Example 7](data/cutout.jpg)
+- detect result  
+![Example 2](readme_imgs/result.jpg)
 ```Shell
-# To detect images, put your images to the 'images' folder, then:
-python detect.py --trained_model=res101_coco_800000.pth --image images
-# Use --cutout to cut out objects.
-python detect.py --trained_model=res101_coco_800000.pth --image images --cutout
-# To detect videos, put your videos to the 'videos' folder, then:
-python detect.py --trained_model=res101_coco_800000.pth --video 1.mp4
+# To detect images, pass the path of the image folder, detected images will be saved in `results/images`.
+python detect.py --weight=res101_coco_800000.pth --image=images
+```
+- cutout object  
+![Example 3](readme_imgs/cutout.jpg)
+```
+# Use --cutout to cut out detected objects.
+python detect.py --weight=res101_coco_800000.pth --image=images --cutout
+```
+```
+# To detect videos, pass the path of video, detected video will be saved in `results/videos`:
+python detect.py --weight=res101_coco_800000.pth --video=videos/1.mp4
 # Use --real_time to detect real-timely.
-python detect.py --trained_model=res101_coco_800000.pth --video 1.mp4 --real_time
-# Use --hide_mask, --hide_score, --show_lincomb and so on to get different results.
-python detect.py --trained_model=res101_coco_800000.pth --image images --hide_mask
+python detect.py --weight=res101_coco_800000.pth --video=videos/1.mp4 --real_time
+```
+- linear combination result  
+![Example 4](readme_imgs/lincomb.jpg)
+```
+# Use --hide_mask, --hide_score, --save_lincomb, --no_crop and so on to get different results.
+python detect.py --weight=res101_coco_800000.pth --image=images --save_lincomb
 ```
 
 ## Train on PASCAL_SBD datasets
 - Download PASCAL_SBD datasets from [here](http://home.bharathh.info/pubs/codes/SBD/download.html), modify the path of the `img` folder in `data/config.py`.
 - Then, generate a coco-style json.
 ```Shell
-python utils/pascal2coco.py
+python utils/pascal2coco.py --folder_path=/home/feiyu/Data/pascal_sbd
 ```
 - Download the Yolact trained weights.
 [Google dirve](https://drive.google.com/file/d/1QHO_FEbsFJvN9_L4WZqCpKFtUre6iMVb/view?usp=sharing),   [Baidu Cloud: eg7b](https://pan.baidu.com/s/1KM5yV4IxHiAX4Iwn5G_TuA)
 
 ```Shell
 # Training.
-python train.py --config=res50_pascal_config
+python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --cfg=res50_pascal
 # Evalution.
-python eval.py --trained_model=res50_pascal_120000.pth
+python eval.py --weight=res50_pascal_120000.pth
 ```
 
 ## Train custom datasets
@@ -111,20 +125,24 @@ python eval.py --trained_model=res50_pascal_120000.pth
 ```Shell
 pip install labelme
 ```
-- Use labelme to label your images, only ploygons are needed. Note that different objects belong to one class need to be distinguished by '-1', '-2', ... The created json files are in the same folder with the images, leave them alone.  
-![Example 3](data/labelme2.png)
-- Prepare a 'labels.txt' like this, note that row1 and row2 are also required.  
-![Example 4](data/labels.png)
-- Prepare coco-style json.
+- Use labelme to label your images, only ploygons are needed. The created json files are in the same folder with the images.  
+![Example 5](readme_imgs/labelme.png)
+- Prepare a 'labels.txt' like this, this first line: 'background' is always needed.  
+![Example 6](readme_imgs/labels.png)
+- Prepare coco-style json, pass the paths of your image folder and the labels.txt. The 'custom_dataset' folder is a prepared example.  
 ```Shell
-python utils/labelme2coco.py your-image-and-labelme-json-path your-expected-output-folder --labels the-path-of-labels.txt
+python utils/labelme2coco.py --img_dir=custom_dataset --label_name=cuatom_dataset/labels.txt
 ```
-- Edit `CUSTOM_CLASSES` and `CUSTOM_LABEL_MAP` in `data/config.py`.  
-![Example 5](data/label_name.png) 
-Note that if there's only one class, the `CUSTOM_CLASSES` should be like `('plane', )`. The final comma is necessary to make it as a tuple, or the number of classes would be `len('plane')`.
-![Example 6](data/label_map.png)
-- Edit `custom_dataset` in `data/config.py`, modify the path as your output folder. If you need to validate, prepare the validation dataset by the same way.  
-- Then train, since that the custom dataset is different from coco2017, you might tune the learning rate and learning rate decay by yourself.  
+- Edit `CUSTOM_CLASSES` in `config.py`.  
+![Example 7](readme_imgs/label_name.png)  
+Note that if there's only one class, the `CUSTOM_CLASSES` should be like `('dog', )`. The final comma is necessary to make it as a tuple, or the number of classes would be `len('dog')`.  
+- Choose a configuration ('res101_custom' or 'res50_custom') in `config.py`, modify the corresponding `self.train_imgs` and `self.train_ann`. If you need to validate, prepare the validation dataset by the same way.  
+- Then train.  
 ```Shell
-python train.py --config=res101_custom_config
+python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --cfg=res101_custom
 ```
+- Some parameters need to be taken care of by yourself:
+1) Training batch size, try not to use batch size smaller than 4.
+2) Anchor size, the anchor size should match with the object scale of your dataset.
+3) Total training steps, learning rate decay steps and the warm up step, these should be decided according to the dataset size, overwrite `self.max_iter`, `self.decay_step`, `self.warmup_until` in your configuration.
+4) If you encounter infinite loss, try a longer warm up step or use a smaller learning rate.

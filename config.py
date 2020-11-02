@@ -51,7 +51,7 @@ PASCAL_CLASSES = ("aeroplane", "bicycle", "bird", "boat", "bottle",
                   "dog", "horse", "motorbike", "person", "pottedplant",
                   "sheep", "sofa", "train", "tvmonitor")
 
-CUSTOM_CLASSES = ('plane', 'cat', 'dog', 'person')  # This is just an example, modify it as you like.
+CUSTOM_CLASSES = ('dog', 'person', 'bear', 'sheep')
 
 COCO_LABEL_MAP = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8,
                   9: 9, 10: 10, 11: 11, 13: 12, 14: 13, 15: 14, 16: 15, 17: 16,
@@ -85,7 +85,7 @@ class res101_coco:
             self.weight = args.resume if args.resume else 'weights/resnet101_reducedfc.pth'
         else:
             self.weight = args.weight
-        self.data_root = '/data-nbd/home/xuweikang/Data/'
+        self.data_root = '/home/feiyu/Data/'
 
         if mode == 'train':
             self.train_imgs = self.data_root + 'coco2017/train2017/'
@@ -168,38 +168,41 @@ class res50_pascal(res101_coco):
             self.weight = args.weight
 
         if mode == 'train':
-            self.train_imgs = self.data_root + 'pascal_sbd/dataset/img'
-            self.train_ann = self.data_root + 'pascal_sbd/dataset/pascal_sbd_train.json'
+            self.train_imgs = self.data_root + 'pascal_sbd/img'
+            self.train_ann = self.data_root + 'pascal_sbd/pascal_sbd_train.json'
             self.max_iter = int(120000 / self.bs_factor)
             self.lr_steps = tuple([int(aa / self.bs_factor) for aa in (60000, 100000)])
             self.scales = [int(self.img_size / 550 * aa) for aa in (32, 64, 128, 256, 512)]
 
         if mode in ('train', 'val'):
-            self.val_imgs = self.data_root + 'pascal_sbd/dataset/img'
-            self.val_ann = self.data_root + 'pascal_sbd/dataset/pascal_sbd_val.json'
+            self.val_imgs = self.data_root + 'pascal_sbd/img'
+            self.val_ann = self.data_root + 'pascal_sbd/pascal_sbd_val.json'
 
 
 class res101_custom(res101_coco):
     def __init__(self, args, mode='train'):
         super().__init__(args, mode=mode)
         self.class_names = CUSTOM_CLASSES
-        self.num_classes = len(self.class_names) + 1,
+        self.num_classes = len(self.class_names) + 1
         self.continuous_id = {(aa + 1): (aa + 1) for aa in range(self.num_classes - 1)}
 
         if mode == 'train':
-            self.train_imgs = self.data_root + 'custom/'  # No need to add 'JPEGImages/'.
-            self.train_ann = self.data_root + 'custom/train_ann.json'
+            self.train_imgs = 'custom_dataset/'
+            self.train_ann = 'custom_dataset/custom_ann.json'
+            self.warmup_until = 100  # just an example
+            self.max_iter = 2000  # just an example
+            self.lr_steps = (1200, 1600)  # just an example
 
         if mode in ('train', 'val'):
-            self.val_imgs = self.data_root + 'custom/'
-            self.val_ann = self.data_root + 'custom/val_ann.json'
+            self.val_imgs = ''  # decide by yourself
+            self.val_ann = ''
 
 
 class res50_custom(res101_coco):
     def __init__(self, args, mode='train'):
         super().__init__(args, mode=mode)
         self.class_names = CUSTOM_CLASSES
-        self.num_classes = len(self.class_names) + 1,
+        self.num_classes = len(self.class_names) + 1
         self.continuous_id = {(aa + 1): (aa + 1) for aa in range(self.num_classes - 1)}
         if mode == 'train':
             self.weight = args.resume if args.resume else 'weights/resnet50-19c8e357.pth'
@@ -207,12 +210,15 @@ class res50_custom(res101_coco):
             self.weight = args.weight
 
         if mode == 'train':
-            self.train_imgs = self.data_root + 'custom/'  # No need to add 'JPEGImages/'.
-            self.train_ann = self.data_root + 'custom/train_ann.json'
+            self.train_imgs = 'custom_dataset/'
+            self.train_ann = 'custom_dataset/custom_ann.json'
+            self.warmup_until = 100  # just an example
+            self.max_iter = 2000  # just an example
+            self.lr_steps = (1200, 1600)  # just an example
 
         if mode in ('train', 'val'):
-            self.val_imgs = self.data_root + 'custom/'
-            self.val_ann = self.data_root + 'custom/val_ann.json'
+            self.val_imgs = ''  # decide by yourself
+            self.val_ann = ''
 
 
 def get_config(args, mode):

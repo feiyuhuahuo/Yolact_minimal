@@ -9,8 +9,8 @@ import torch.utils.data as data
 import torch.backends.cudnn as cudnn
 
 from modules.build_yolact import Yolact
-from data.config import get_config
-from data.coco import COCODetection, detect_collate
+from config import get_config
+from utils.coco import COCODetection, detect_collate
 from utils import timer
 from utils.output_utils import nms, after_nms, draw_img, ProgressBar
 from utils.augmentations import ValAug
@@ -26,7 +26,7 @@ parser.add_argument('--hide_mask', default=False, action='store_true', help='Hid
 parser.add_argument('--hide_bbox', default=False, action='store_true', help='Hide boxes in results.')
 parser.add_argument('--hide_score', default=False, action='store_true', help='Hide scores in results.')
 parser.add_argument('--cutout', default=False, action='store_true', help='Cut out each object and save.')
-parser.add_argument('--show_lincomb', default=False, action='store_true', help='Show the generating process of masks.')
+parser.add_argument('--save_lincomb', default=False, action='store_true', help='Show the generating process of masks.')
 parser.add_argument('--no_crop', default=False, action='store_true',
                     help='Do not crop the output masks with the predicted bounding box.')
 parser.add_argument('--real_time', default=False, action='store_true', help='Show the detection results real-timely.')
@@ -87,7 +87,7 @@ with torch.no_grad():
             temp = aa
 
             if i > 0:
-                t_t, t_d, t_f, t_nms, t_an, t_si = timer.get_times(['batch', 'data', 'forward',
+                t_t, t_d, t_f, t_nms, t_an, t_si = timer.get_times(['batch', 'readme_imgs', 'forward',
                                                                     'nms', 'after_nms', 'save_img'])
                 fps, t_fps = 1 / (t_d + t_f + t_nms + t_an), 1 / t_t
                 bar_str = progress_bar.get_bar(i + 1)
