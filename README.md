@@ -65,43 +65,43 @@ tensorboard --logdir=tensorboard_log
 ## Evalution
 ```Shell
 # Evaluate on COCO val2017 (configuration will be parsed according to the model name).
-python eval.py --weight=res101_coco_800000.pth
+python eval.py --weight=weights/res101_coco_800000.pth
 ```
 - The result should be:  
 ![Example 1](readme_imgs/mAP.png)
 
 ```Shell
 # Evaluate with a specified number of images.
-python eval.py --weight=res101_coco_800000.pth --val_num=1000
+python eval.py --weight=weights/res101_coco_800000.pth --val_num=1000
 # Evaluate with traditional nms.
-python eval.py --weight=res101_coco_800000.pth --traditional_nms
+python eval.py --weight=weights/res101_coco_800000.pth --traditional_nms
 # Create a json file and then use the COCO API to evaluate the COCO detection result.
-python eval.py --weight=res101_coco_800000.pth --coco_api
+python eval.py --weight=weights/res101_coco_800000.pth --coco_api
 ```
 ## Detect
 - detect result  
 ![Example 2](readme_imgs/result.jpg)
 ```Shell
 # To detect images, pass the path of the image folder, detected images will be saved in `results/images`.
-python detect.py --weight=res101_coco_800000.pth --image=images
+python detect.py --weight=weights/res101_coco_800000.pth --image=images
 ```
 - cutout object  
 ![Example 3](readme_imgs/cutout.jpg)
 ```
 # Use --cutout to cut out detected objects.
-python detect.py --weight=res101_coco_800000.pth --image=images --cutout
+python detect.py --weight=weights/res101_coco_800000.pth --image=images --cutout
 ```
 ```
 # To detect videos, pass the path of video, detected video will be saved in `results/videos`:
-python detect.py --weight=res101_coco_800000.pth --video=videos/1.mp4
+python detect.py --weight=weights/res101_coco_800000.pth --video=videos/1.mp4
 # Use --real_time to detect real-timely.
-python detect.py --weight=res101_coco_800000.pth --video=videos/1.mp4 --real_time
+python detect.py --weight=weights/res101_coco_800000.pth --video=videos/1.mp4 --real_time
 ```
 - linear combination result  
 ![Example 4](readme_imgs/lincomb.jpg)
 ```
 # Use --hide_mask, --hide_score, --save_lincomb, --no_crop and so on to get different results.
-python detect.py --weight=res101_coco_800000.pth --image=images --save_lincomb
+python detect.py --weight=weights/res101_coco_800000.pth --image=images --save_lincomb
 ```
 
 ## Train on PASCAL_SBD datasets
@@ -117,7 +117,7 @@ python utils/pascal2coco.py --folder_path=/home/feiyu/Data/pascal_sbd
 # Training.
 python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --cfg=res50_pascal
 # Evalution.
-python eval.py --weight=res50_pascal_120000.pth
+python eval.py --weight=weights/res50_pascal_120000.pth
 ```
 
 ## Train custom datasets
