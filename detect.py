@@ -87,7 +87,7 @@ with torch.no_grad():
             temp = aa
 
             if i > 0:
-                t_t, t_d, t_f, t_nms, t_an, t_si = timer.get_times(['batch', 'readme_imgs', 'forward',
+                t_t, t_d, t_f, t_nms, t_an, t_si = timer.get_times(['batch', 'data', 'forward',
                                                                     'nms', 'after_nms', 'save_img'])
                 fps, t_fps = 1 / (t_d + t_f + t_nms + t_an), 1 / t_t
                 bar_str = progress_bar.get_bar(i + 1)
