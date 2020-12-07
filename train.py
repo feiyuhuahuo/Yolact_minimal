@@ -1,6 +1,5 @@
 import time
 import torch
-import torch.nn as nn
 import torch.optim as optim
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
@@ -10,19 +9,18 @@ import torch.utils.data as data
 from tensorboardX import SummaryWriter
 import argparse
 import datetime
-import os
 import glob
 
 from utils import timer
-from modules.build_yolact import Yolact
+from modules.build_yolact import Yolact, NetWithLoss
 from modules.multi_loss import Multi_Loss
 from config import get_config
-from utils.coco import COCODetection
+from utils.coco import COCODetection, train_collate
+from utils.common_utils import save_best, save_latest
 from eval import evaluate
-from utils.coco import train_collate
 
 parser = argparse.ArgumentParser(description='Yolact Training Script')
-parser.add_argument('--local_rank', type=int)
+parser.add_argument('--local_rank', type=int, default=None)
 parser.add_argument('--cfg', default='res101_coco', help='The configuration name to use.')
 parser.add_argument('--train_bs', type=int, default=8, help='total training batch size')
 parser.add_argument('--img_size', default=550, type=int, help='The image size for training.')
@@ -33,46 +31,12 @@ parser.add_argument('--val_num', default=-1, type=int, help='The number of image
 parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
 parser.add_argument('--coco_api', action='store_true', help='Whether to use cocoapi to evaluate results.')
 
-
-def save_best(net, mask_map):
-    weight = glob.glob('weights/best*')
-    best_mask_map = float(weight[0].split('/')[-1].split('_')[1]) if weight else 0.
-
-    if mask_map >= best_mask_map:
-        if weight:
-            os.remove(weight[0])  # remove the last best model
-
-        print(f'\nSaving the best model as \'best_{mask_map}_{cfg_name}_{step}.pth\'.\n')
-        torch.save(net.state_dict(), f'weights/best_{mask_map}_{cfg_name}_{step}.pth')
-
-
-def save_latest(net):
-    weight = glob.glob('weights/latest*')
-    if weight:
-        os.remove(weight[0])
-
-    torch.save(net.state_dict(), f'weights/latest_{cfg_name}_{step}.pth')
-
-
-class NetWithLoss(nn.Module):
-    def __init__(self, net, loss):
-        super().__init__()
-        self.net = net
-        self.loss = loss
-
-    def forward(self, images, box_classes, masks_gt, num_crowds):
-        predictions = self.net(images)
-        return self.loss(predictions, box_classes, masks_gt, num_crowds)
-
-
 args = parser.parse_args()
-cfg = get_config(args, mode='train')
 cuda = torch.cuda.is_available()
+cfg = get_config(args, cuda, mode='train')
 
 net = Yolact(cfg)
 net.train()
-optimizer = optim.SGD(net.parameters(), lr=cfg.lr, momentum=0.9, weight_decay=5e-4)
-criterion = Multi_Loss(cfg)
 
 if args.resume == 'latest':
     weight = glob.glob('weights/latest*')[0]
@@ -89,6 +53,10 @@ else:
     start_step = 0
 
 dataset = COCODetection(cfg, mode='train')
+optimizer = optim.SGD(net.parameters(), lr=cfg.lr, momentum=0.9, weight_decay=5e-4)
+criterion = Multi_Loss(cfg)
+net = NetWithLoss(net, criterion)
+
 train_sampler = None
 main_gpu = False
 if cuda:
@@ -97,12 +65,13 @@ if cuda:
     main_gpu = dist.get_rank() == 0
     num_gpu = dist.get_world_size()
 
-    net_with_loss = NetWithLoss(net, criterion)
-    net = DDP(net_with_loss.cuda(), [args.local_rank], output_device=args.local_rank, broadcast_buffers=True)
+    net = DDP(net.cuda(), [args.local_rank], output_device=args.local_rank, broadcast_buffers=True)
     train_sampler = DistributedSampler(dataset, shuffle=True)
 
+# If encounters OOM error when training on a 11GB memory GPU with batch_size=8, try set pin_memory= False,
+# not sure if this helps.
 # shuffle must be False if sampler is specified
-data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=cfg.bs_per_gpu // 2, shuffle=(train_sampler is None),
+data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=0, shuffle=(train_sampler is None),
                               collate_fn=train_collate, pin_memory=True, sampler=train_sampler)
 
 step_index = 0
@@ -201,8 +170,8 @@ try:  # Use try-except to use ctrl+c to stop and save early.
                     writer.add_scalar('mask_map', mask_row[1], global_step=step)
 
                     map_tables.append(table)
-                    save_latest(net.module.net if cuda else net)
-                    save_best(net.module.net if cuda else net, mask_row[1])
+                    save_latest(net.module.net if cuda else net, cfg_name, step)
+                    save_best(net.module.net if cuda else net, mask_row[1], cfg_name, step)
 
                     timer.reset()  # training time and val time share the same Obj, so reset it to avoid conflict
 
@@ -216,14 +185,14 @@ try:  # Use try-except to use ctrl+c to stop and save early.
 
                 if (not cuda) or main_gpu:
                     print(f'Training completed, saving the final model as \'latest_{cfg_name}_{step}.pth\'.\n')
-                    save_latest(net.module.net if cuda else net)
+                    save_latest(net.module.net if cuda else net, cfg_name, step)
 
                 break
 
 except KeyboardInterrupt:
     if (not cuda) or main_gpu:
         print(f'\nStopped, saving the latest model as \'latest_{cfg_name}_{step}.pth\'.\n')
-        save_latest(net.module.net if cuda else net)
+        save_latest(net.module.net if cuda else net, cfg_name, step)
 
         print('\nValidation results during training:\n')
         for table in map_tables:

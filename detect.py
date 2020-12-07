@@ -12,8 +12,9 @@ from modules.build_yolact import Yolact
 from config import get_config
 from utils.coco import COCODetection, detect_collate
 from utils import timer
-from utils.output_utils import nms, after_nms, draw_img, ProgressBar
-from utils.augmentations import ValAug
+from utils.output_utils import nms, after_nms, draw_img
+from utils.common_utils import ProgressBar
+from utils.augmentations import val_aug
 
 parser = argparse.ArgumentParser(description='YOLACT Detection.')
 parser.add_argument('--gpu_id', default='0', type=str, help='The GPUs to use.')
@@ -35,8 +36,8 @@ parser.add_argument('--visual_thre', default=0.3, type=float,
 
 args = parser.parse_args()
 args.cfg = re.findall(r'res.+_[a-z]+', args.weight)[0]
-cfg = get_config(args, mode='detect')
 cuda = torch.cuda.is_available()
+cfg = get_config(args, cuda, mode='detect')
 
 net = Yolact(cfg)
 net.load_weights(cfg.weight, cuda)
@@ -95,7 +96,7 @@ with torch.no_grad():
                       f't_t: {t_t:.3f} | t_d: {t_d:.3f} | t_f: {t_f:.3f} | t_nms: {t_nms:.3f} | '
                       f't_after_nms: {t_an:.3f} | t_save_img: {t_si:.3f}', end='')
 
-        print('\nFinished.')
+        print('\nFinished, saved in: results/images.')
 
     # detect videos
     elif cfg.video is not None:
@@ -120,7 +121,7 @@ with torch.no_grad():
 
             frame_origin = vid.read()[1]
             img_h, img_w = frame_origin.shape[0:2]
-            frame_trans, _, _, _ = ValAug(cfg)(frame_origin, None, None, None)
+            frame_trans = val_aug(frame_origin, cfg)
 
             frame_tensor = torch.tensor(frame_trans).float()
             if cuda:

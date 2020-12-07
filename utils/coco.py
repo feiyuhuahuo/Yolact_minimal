@@ -6,7 +6,7 @@ import glob
 import numpy as np
 from pycocotools.coco import COCO
 
-from utils.augmentations import TrainAug, ValAug
+from utils.augmentations import train_aug, val_aug
 
 
 def train_collate(batch):
@@ -47,12 +47,10 @@ class COCODetection(data.Dataset):
         if mode in ('train', 'val'):
             self.image_path = cfg.train_imgs if mode == 'train' else cfg.val_imgs
             self.coco = COCO(cfg.train_ann if mode == 'train' else cfg.val_ann)
-            self.augmentation = TrainAug(cfg) if mode == 'train' else ValAug(cfg)
             self.ids = list(self.coco.imgToAnns.keys())
         elif mode == 'detect':
             self.image_path = glob.glob(cfg.image + '/*.jpg')
             self.image_path.sort()
-            self.augmentation = ValAug(cfg)
 
         self.continuous_id = cfg.continuous_id
 
@@ -60,8 +58,8 @@ class COCODetection(data.Dataset):
         if self.mode == 'detect':
             img_name = self.image_path[index]
             img_origin = cv2.imread(img_name)
-            img, _, _, _ = self.augmentation(img_origin, None, None, None)
-            return img, img_origin, img_name.split('/')[-1]
+            img_normed = val_aug(img_origin, self.cfg)
+            return img_normed, img_origin, img_name.split('/')[-1]
         else:
             img_id = self.ids[index]
             ann_ids = self.coco.getAnnIds(imgIds=img_id)
@@ -112,11 +110,13 @@ class COCODetection(data.Dataset):
                 masks = np.stack(mask_list, axis=0)
 
                 assert masks.shape == (box_array.shape[0], height, width), 'Unmatched annotations.'
-                img, masks, boxes, labels = self.augmentation(img, masks, box_array[:, :4],
-                                                              {'num_crowds': num_crowds, 'labels': box_array[:, 4]})
 
-                num_crowds = labels['num_crowds']
-                labels = labels['labels']
+                boxes, labels = box_array[:, :4], box_array[:, 4]
+                if self.mode == 'train':
+                    img, masks, boxes, labels, num_crowds = train_aug(img, masks, boxes, labels, num_crowds, self.cfg)
+                elif self.mode == 'val':
+                    img = val_aug(img, self.cfg)
+
                 boxes = np.hstack((boxes, np.expand_dims(labels, axis=1)))
 
                 if self.mode == 'val':
@@ -125,8 +125,7 @@ class COCODetection(data.Dataset):
                     return img, boxes, masks, num_crowds
             else:
                 if self.mode == 'val':
-                    print('Error, no valid object in this image.')
-                    exit()
+                    raise RuntimeError('Error, no valid object in this image.')
                 else:
                     print(f'Warning, no valid object in image: {img_id}. Use a repeated image in this batch.')
                     return None, None, None, None

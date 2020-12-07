@@ -7,6 +7,7 @@ times.setdefault('batch', [])
 times.setdefault('data', [])
 mark = False  # Use for starting and stopping the timer
 max_len = 100
+cuda = torch.cuda.is_available()
 
 
 def reset(length=100):
@@ -60,12 +61,15 @@ class counter:
 
     def __enter__(self):
         if self.mark:
-            torch.cuda.synchronize()
+            if cuda:
+                torch.cuda.synchronize()
+
             self.times.setdefault(self.name, [])
             self.times[self.name].append(time.perf_counter())
 
     def __exit__(self, e, ev, t):
         if self.mark:
-            torch.cuda.synchronize()
-            self.times[self.name][-1] = time.perf_counter() - self.times[self.name][-1]
+            if cuda:
+                torch.cuda.synchronize()
 
+            self.times[self.name][-1] = time.perf_counter() - self.times[self.name][-1]

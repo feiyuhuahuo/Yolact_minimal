@@ -3,16 +3,10 @@ import numpy as np
 import torch
 import torch.distributed as dist
 
-if not os.path.exists('results/'):
-    os.mkdir('results/')
-if not os.path.exists('results/images'):
-    os.mkdir('results/images')
-if not os.path.exists('results/videos'):
-    os.mkdir('results/videos')
-if not os.path.exists('weights/'):
-    os.mkdir('weights/')
-if not os.path.exists('tensorboard_log/'):
-    os.mkdir('tensorboard_log/')
+os.makedirs('results/images', exist_ok=True)
+os.makedirs('results/videos', exist_ok=True)
+os.makedirs('weights/', exist_ok=True)
+os.makedirs('tensorboard_log/', exist_ok=True)
 
 COLORS = np.array([[0, 0, 0], [244, 67, 54], [233, 30, 99], [156, 39, 176], [103, 58, 183], [100, 30, 60],
                    [63, 81, 181], [33, 150, 243], [3, 169, 244], [0, 188, 212], [20, 55, 200],
@@ -31,25 +25,24 @@ COLORS = np.array([[0, 0, 0], [244, 67, 54], [233, 30, 99], [156, 39, 176], [103
                    [255, 155, 0], [155, 255, 0], [0, 155, 255], [0, 255, 155], [18, 5, 40],
                    [120, 120, 255], [255, 58, 30], [60, 45, 60], [75, 27, 244], [128, 25, 70]], dtype='uint8')
 
-COCO_CLASSES = ('person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus',
-                'train', 'truck', 'boat', 'traffic light', 'fire hydrant',
-                'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog',
-                'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe',
-                'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
-                'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat',
-                'baseball glove', 'skateboard', 'surfboard', 'tennis racket',
-                'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl',
-                'banana', 'apple', 'sandwich', 'orange', 'broccoli', 'carrot',
-                'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch',
-                'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop',
-                'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven',
-                'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase',
-                'scissors', 'teddy bear', 'hair drier', 'toothbrush')
+# 7 classes per row
+COCO_CLASSES = ('person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train',
+                'truck', 'boat', 'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench',
+                'bird', 'cat', 'dog', 'horse', 'sheep', 'cow', 'elephant',
+                'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie',
+                'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat',
+                'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 'bottle', 'wine glass', 'cup',
+                'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich',
+                'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake',
+                'chair', 'couch', 'potted plant', 'bed', 'dining table', 'toilet', 'tv',
+                'laptop', 'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven',
+                'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors',
+                'teddy bear', 'hair drier', 'toothbrush')
 
-PASCAL_CLASSES = ("aeroplane", "bicycle", "bird", "boat", "bottle",
-                  "bus", "car", "cat", "chair", "cow", "diningtable",
-                  "dog", "horse", "motorbike", "person", "pottedplant",
-                  "sheep", "sofa", "train", "tvmonitor")
+PASCAL_CLASSES = ('aeroplane', 'bicycle', 'bird', 'boat', 'bottle',
+                  'bus', 'car', 'cat', 'chair', 'cow',
+                  'diningtable', 'dog', 'horse', 'motorbike', 'person',
+                  'pottedplant', 'sheep', 'sofa', 'train', 'tvmonitor')
 
 CUSTOM_CLASSES = ('dog', 'person', 'bear', 'sheep')
 
@@ -68,6 +61,9 @@ mask_proto_net = [(256, 3, {'padding': 1}), (256, 3, {'padding': 1}), (256, 3, {
                   (None, -2, {}), (256, 3, {'padding': 1}), (32, 1, {})]
 
 extra_head_net = [(256, 3, {'padding': 1})]
+
+norm_mean = np.array([103.94, 116.78, 123.68], dtype=np.float32)
+norm_std = np.array([57.38, 57.12, 58.40], dtype=np.float32)
 
 
 class res101_coco:
@@ -88,8 +84,8 @@ class res101_coco:
         self.data_root = '/home/feiyu/Data/'
 
         if mode == 'train':
-            self.train_imgs = self.data_root + 'coco2017/train2017/'
-            self.train_ann = self.data_root + 'coco2017/annotations/instances_train2017.json'
+            self.train_imgs = self.data_root + 'coco2017/val2017/'
+            self.train_ann = self.data_root + 'coco2017/annotations/instances_val2017.json'
             self.train_bs = args.train_bs
             self.bs_per_gpu = args.bs_per_gpu
             self.val_interval = args.val_interval
@@ -141,7 +137,7 @@ class res101_coco:
         print()
         print('-' * 30 + self.__class__.__name__ + '-' * 30)
         for k, v in vars(self).items():
-            if k not in ('data_root', 'cfg'):
+            if k not in ('continuous_id', 'data_root', 'cfg'):
                 print(f'{k}: {v}')
         print()
 
@@ -221,23 +217,31 @@ class res50_custom(res101_coco):
             self.val_ann = ''
 
 
-def get_config(args, mode):
-    if mode != 'train':
-        assert args.gpu_id.isdigit(), f'Only one GPU can be used in val/detect mode, got {args.gpu_id}.'
-        os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
-    else:
-        torch.cuda.set_device(args.local_rank)
-        dist.init_process_group(backend="nccl", init_method="env://")
+def get_config(args, cuda, mode):
+    if mode == 'train':
+        if cuda:
+            torch.cuda.set_device(args.local_rank)
+            dist.init_process_group(backend='nccl', init_method='env://')
 
-        # Only launched by torch.distributed.launch, 'WORLD_SIZE' can be add to environment variables.
-        num_gpus = int(os.environ["WORLD_SIZE"])
-        assert args.train_bs % num_gpus == 0, 'Training batch size must be divisible by GPU number.'
-        args.bs_per_gpu = int(args.train_bs / num_gpus)
-        args.gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES') if os.environ.get('CUDA_VISIBLE_DEVICES') else 0
+            # Only launched by torch.distributed.launch, 'WORLD_SIZE' can be add to environment variables.
+            num_gpus = int(os.environ['WORLD_SIZE'])
+            assert args.train_bs % num_gpus == 0, 'Training batch size must be divisible by GPU number.'
+            args.bs_per_gpu = int(args.train_bs / num_gpus)
+            args.gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES') if os.environ.get('CUDA_VISIBLE_DEVICES') else 0
+        else:
+            args.bs_per_gpu = args.train_bs
+            args.gpu_id = None
+            print('\n-----No GPU found, training on CPU.-----')
+    else:
+        if cuda:
+            assert args.gpu_id.isdigit(), f'Only one GPU can be used in val/detect mode, got {args.gpu_id}.'
+            os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
+        else:
+            print('\n-----No GPU found, validate on CPU.-----')
 
     cfg = globals()[args.cfg](args, mode)
 
-    if mode != 'train':
+    if not cuda or mode != 'train':
         cfg.print_cfg()
     elif dist.get_rank() == 0:
         cfg.print_cfg()

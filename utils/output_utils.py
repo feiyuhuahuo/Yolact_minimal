@@ -260,28 +260,3 @@ def draw_img(results, img_origin, cfg, img_name=None, fps=None):
         cv2.putText(img_fused, fps_str, (0, text_h + 2), font, scale, (255, 255, 255), thickness, cv2.LINE_AA)
 
     return img_fused
-
-
-class ProgressBar:
-    def __init__(self, length, max_val):
-        self.max_val = max_val
-        self.length = length
-        self.cur_val = 0
-
-        self.cur_num_bars = -1
-        self.update_str()
-
-    def update_str(self):
-        num_bars = int(self.length * (self.cur_val / self.max_val))
-
-        if num_bars != self.cur_num_bars:
-            self.cur_num_bars = num_bars
-            self.string = '█' * num_bars + '░' * (self.length - num_bars)
-
-    def get_bar(self, new_val):
-        self.cur_val = new_val
-
-        if self.cur_val > self.max_val:
-            self.cur_val = self.max_val
-        self.update_str()
-        return self.string

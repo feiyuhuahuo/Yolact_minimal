@@ -16,7 +16,8 @@ from utils.coco import COCODetection, val_collate
 from modules.build_yolact import Yolact
 from utils.box_utils import bbox_iou, mask_iou
 from utils import timer
-from utils.output_utils import after_nms, nms, ProgressBar
+from utils.output_utils import after_nms, nms
+from utils.common_utils import ProgressBar
 from config import get_config, COCO_LABEL_MAP
 
 parser = argparse.ArgumentParser(description='YOLACT COCO Evaluation')
@@ -347,7 +348,7 @@ make_json = MakeJson()
 if __name__ == '__main__':
     args = parser.parse_args()
     args.cfg = re.findall(r'res.+_[a-z]+', args.weight)[0]
-    cfg = get_config(args, mode='val')
+    cfg = get_config(args, cuda, mode='val')
 
     net = Yolact(cfg)
     net.load_weights(cfg.weight, cuda)

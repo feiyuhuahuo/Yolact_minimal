@@ -19,7 +19,7 @@ Other common packages.
 ```Shell
 python build_stuff/setup.py build_ext --inplace
 ```
-- Download COCO 2017 datasets, modify the root path in 'res101_coco' in `config.py`. 
+- Download COCO 2017 datasets, modify `self.data_root` in 'res101_coco' in `config.py`. 
 - Download weights.
 
 Yolact trained weights.  
@@ -39,6 +39,8 @@ ImageNet pre-trained weights.
 
 ## Train
 ```Shell
+# Train on CPU.
+python train.py --train_bs=2
 # Train with resnet101 backbone on one GPU with a batch size of 8 (default).
 python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --train_bs=8
 # Train on multiple GPUs (i.e. two GPUs, 8 images per GPU).

@@ -6,6 +6,17 @@ from modules.backbone import construct_backbone
 from utils.box_utils import make_anchors
 
 
+class NetWithLoss(nn.Module):
+    def __init__(self, net, loss):
+        super().__init__()
+        self.net = net
+        self.loss = loss
+
+    def forward(self, images, box_classes, masks_gt, num_crowds):
+        predictions = self.net(images)
+        return self.loss(predictions, box_classes, masks_gt, num_crowds)
+
+
 class Concat(nn.Module):
     def __init__(self, nets, extra_params):
         super().__init__()
