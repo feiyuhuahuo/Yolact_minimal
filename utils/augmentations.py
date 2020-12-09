@@ -63,7 +63,7 @@ def Pad(image, masks, boxes, labels, width, height, pad_gt=True):
     return expand_image, masks, boxes, labels
 
 
-# TODO: try to use a keep ratio resize.
+# TODO: try to use a keep ratio resize, also pay attention to square anchor
 def resize(image, masks, boxes, img_size, during_training=True):
     img_h, img_w, _ = image.shape
     width, height = img_size, img_size

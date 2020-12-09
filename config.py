@@ -67,8 +67,9 @@ norm_std = np.array([57.38, 57.12, 58.40], dtype=np.float32)
 
 
 class res101_coco:
-    def __init__(self, args, mode='train'):
-        self.mode = mode
+    def __init__(self, args):
+        self.mode = args.mode
+        self.cuda = args.cuda
         self.gpu_id = args.gpu_id
         self.img_size = args.img_size
         self.class_names = COCO_CLASSES
@@ -77,13 +78,13 @@ class res101_coco:
         self.scales = [int(self.img_size / 550 * aa) for aa in (24, 48, 96, 192, 384)]
         self.aspect_ratios = [1, 1 / 2, 2]
         self.use_square_anchors = True  # If False, loss is not stable.
-        if mode == 'train':
+        if self.mode == 'train':
             self.weight = args.resume if args.resume else 'weights/resnet101_reducedfc.pth'
         else:
             self.weight = args.weight
         self.data_root = '/home/feiyu/Data/'
 
-        if mode == 'train':
+        if self.mode == 'train':
             self.train_imgs = self.data_root + 'coco2017/val2017/'
             self.train_ann = self.data_root + 'coco2017/annotations/instances_val2017.json'
             self.train_bs = args.train_bs
@@ -116,7 +117,7 @@ class res101_coco:
             # bn layers behind backbone will not be frozen.
             self.freeze_bn = True if self.bs_per_gpu <= 4 else False
 
-        if mode in ('train', 'val'):
+        if self.mode in ('train', 'val'):
             self.val_imgs = self.data_root + 'coco2017/val2017/'
             self.val_ann = self.data_root + 'coco2017/annotations/instances_val2017.json'
             self.val_bs = 1
@@ -129,7 +130,7 @@ class res101_coco:
         self.top_k = 200
         self.max_detections = 100
 
-        if mode == 'detect':
+        if self.mode == 'detect':
             for k, v in vars(args).items():
                 self.__setattr__(k, v)
 
@@ -143,105 +144,109 @@ class res101_coco:
 
 
 class res50_coco(res101_coco):
-    def __init__(self, args, mode='train'):
-        super().__init__(args, mode=mode)
-        if mode == 'train':
+    def __init__(self, args):
+        super().__init__(args)
+        if self.mode == 'train':
             self.weight = args.resume if args.resume else 'weights/resnet50-19c8e357.pth'
         else:
             self.weight = args.weight
 
 
 class res50_pascal(res101_coco):
-    def __init__(self, args, mode='train'):
-        super().__init__(args, mode=mode)
+    def __init__(self, args):
+        super().__init__(args)
         self.class_names = PASCAL_CLASSES
         self.num_classes = len(PASCAL_CLASSES) + 1
         self.continuous_id = {(aa + 1): (aa + 1) for aa in range(self.num_classes - 1)}
         self.use_square_anchors = False
-        if mode == 'train':
+        if self.mode == 'train':
             self.weight = args.resume if args.resume else 'weights/resnet50-19c8e357.pth'
         else:
             self.weight = args.weight
 
-        if mode == 'train':
+        if self.mode == 'train':
             self.train_imgs = self.data_root + 'pascal_sbd/img'
             self.train_ann = self.data_root + 'pascal_sbd/pascal_sbd_train.json'
             self.max_iter = int(120000 / self.bs_factor)
             self.lr_steps = tuple([int(aa / self.bs_factor) for aa in (60000, 100000)])
             self.scales = [int(self.img_size / 550 * aa) for aa in (32, 64, 128, 256, 512)]
 
-        if mode in ('train', 'val'):
+        if self.mode in ('train', 'val'):
             self.val_imgs = self.data_root + 'pascal_sbd/img'
             self.val_ann = self.data_root + 'pascal_sbd/pascal_sbd_val.json'
 
 
 class res101_custom(res101_coco):
-    def __init__(self, args, mode='train'):
-        super().__init__(args, mode=mode)
+    def __init__(self, args):
+        super().__init__(args)
         self.class_names = CUSTOM_CLASSES
         self.num_classes = len(self.class_names) + 1
         self.continuous_id = {(aa + 1): (aa + 1) for aa in range(self.num_classes - 1)}
 
-        if mode == 'train':
+        if self.mode == 'train':
             self.train_imgs = 'custom_dataset/'
             self.train_ann = 'custom_dataset/custom_ann.json'
             self.warmup_until = 100  # just an example
             self.max_iter = 2000  # just an example
             self.lr_steps = (1200, 1600)  # just an example
 
-        if mode in ('train', 'val'):
+        if self.mode in ('train', 'val'):
             self.val_imgs = ''  # decide by yourself
             self.val_ann = ''
 
 
 class res50_custom(res101_coco):
-    def __init__(self, args, mode='train'):
-        super().__init__(args, mode=mode)
+    def __init__(self, args):
+        super().__init__(args)
         self.class_names = CUSTOM_CLASSES
         self.num_classes = len(self.class_names) + 1
         self.continuous_id = {(aa + 1): (aa + 1) for aa in range(self.num_classes - 1)}
-        if mode == 'train':
+        if self.mode == 'train':
             self.weight = args.resume if args.resume else 'weights/resnet50-19c8e357.pth'
         else:
             self.weight = args.weight
 
-        if mode == 'train':
+        if self.mode == 'train':
             self.train_imgs = 'custom_dataset/'
             self.train_ann = 'custom_dataset/custom_ann.json'
             self.warmup_until = 100  # just an example
             self.max_iter = 2000  # just an example
             self.lr_steps = (1200, 1600)  # just an example
 
-        if mode in ('train', 'val'):
+        if self.mode in ('train', 'val'):
             self.val_imgs = ''  # decide by yourself
             self.val_ann = ''
 
 
-def get_config(args, cuda, mode):
-    if mode == 'train':
-        if cuda:
+def get_config(args, mode):
+    args.cuda = torch.cuda.is_available()
+    args.mode = mode
+
+    if args.mode == 'train':
+        if args.cuda:
             torch.cuda.set_device(args.local_rank)
             dist.init_process_group(backend='nccl', init_method='env://')
 
             # Only launched by torch.distributed.launch, 'WORLD_SIZE' can be add to environment variables.
             num_gpus = int(os.environ['WORLD_SIZE'])
-            assert args.train_bs % num_gpus == 0, 'Training batch size must be divisible by GPU number.'
+            assert args.train_bs % num_gpus == 0, 'Total training batch size must be divisible by GPU number.'
             args.bs_per_gpu = int(args.train_bs / num_gpus)
-            args.gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES') if os.environ.get('CUDA_VISIBLE_DEVICES') else 0
+            args.gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES')
         else:
             args.bs_per_gpu = args.train_bs
             args.gpu_id = None
             print('\n-----No GPU found, training on CPU.-----')
     else:
-        if cuda:
+        if args.cuda:
             assert args.gpu_id.isdigit(), f'Only one GPU can be used in val/detect mode, got {args.gpu_id}.'
             os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
         else:
+            args.gpu_id = None
             print('\n-----No GPU found, validate on CPU.-----')
 
-    cfg = globals()[args.cfg](args, mode)
+    cfg = globals()[args.cfg](args)
 
-    if not cuda or mode != 'train':
+    if not args.cuda or args.mode != 'train':
         cfg.print_cfg()
     elif dist.get_rank() == 0:
         cfg.print_cfg()

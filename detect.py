@@ -36,15 +36,14 @@ parser.add_argument('--visual_thre', default=0.3, type=float,
 
 args = parser.parse_args()
 args.cfg = re.findall(r'res.+_[a-z]+', args.weight)[0]
-cuda = torch.cuda.is_available()
-cfg = get_config(args, cuda, mode='detect')
+cfg = get_config(args, mode='detect')
 
 net = Yolact(cfg)
-net.load_weights(cfg.weight, cuda)
+net.load_weights(cfg.weight, cfg.cuda)
 net.eval()
 print(f'Model loaded with {cfg.weight}.\n')
 
-if cuda:
+if cfg.cuda:
     cudnn.benchmark = True
     cudnn.fastest = True
     net = net.cuda()
@@ -63,7 +62,7 @@ with torch.no_grad():
             if i == 1:
                 timer.start()
 
-            if cuda:
+            if cfg.cuda:
                 img = img.cuda()
 
             img_h, img_w = img_origin.shape[0:2]
@@ -124,7 +123,7 @@ with torch.no_grad():
             frame_trans = val_aug(frame_origin, cfg)
 
             frame_tensor = torch.tensor(frame_trans).float()
-            if cuda:
+            if cfg.cuda:
                 frame_tensor = frame_tensor.cuda()
 
             with timer.counter('forward'):
