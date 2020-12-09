@@ -10,7 +10,7 @@ from utils.augmentations import train_aug, val_aug
 
 
 def train_collate(batch):
-    imgs, targets, masks, num_crowds = [], [], [], []
+    imgs, targets, masks = [], [], []
     valid_batch = [aa for aa in batch if aa[0] is not None]
 
     lack_len = len(batch) - len(valid_batch)
@@ -22,16 +22,15 @@ def train_collate(batch):
         imgs.append(torch.tensor(sample[0], dtype=torch.float32))
         targets.append(torch.tensor(sample[1], dtype=torch.float32))
         masks.append(torch.tensor(sample[2], dtype=torch.float32))
-        num_crowds.append(sample[3])
 
-    return torch.stack(imgs, 0), targets, masks, num_crowds
+    return torch.stack(imgs, 0), targets, masks
 
 
 def val_collate(batch):
     imgs = torch.tensor(batch[0][0], dtype=torch.float32).unsqueeze(0)
     targets = torch.tensor(batch[0][1], dtype=torch.float32)
     masks = torch.tensor(batch[0][2], dtype=torch.float32)
-    return imgs, targets, masks, batch[0][3], batch[0][4], batch[0][5]
+    return imgs, targets, masks, batch[0][3], batch[0][4]
 
 
 def detect_collate(batch):
@@ -66,14 +65,8 @@ class COCODetection(data.Dataset):
 
             # 'target' includes {'segmentation', 'area', iscrowd', 'image_id', 'bbox', 'category_id'}
             target = self.coco.loadAnns(ann_ids)
+            target = [aa for aa in target if not aa['iscrowd']]
 
-            # Separate out crowd annotations. When val and training, treat these crowds as neutral.
-            crowd = [x for x in target if ('iscrowd' in x and x['iscrowd'])]
-            target = [x for x in target if not ('iscrowd' in x and x['iscrowd'])]
-            num_crowds = len(crowd)
-
-            # Ensure that all crowd annotations are at the end of the array.
-            target += crowd
             file_name = self.coco.loadImgs(img_id)[0]['file_name']
 
             img_path = osp.join(self.image_path, file_name)
@@ -113,22 +106,22 @@ class COCODetection(data.Dataset):
 
                 boxes, labels = box_array[:, :4], box_array[:, 4]
                 if self.mode == 'train':
-                    img, masks, boxes, labels, num_crowds = train_aug(img, masks, boxes, labels, num_crowds, self.cfg)
+                    img, masks, boxes, labels = train_aug(img, masks, boxes, labels, self.cfg)
                 elif self.mode == 'val':
                     img = val_aug(img, self.cfg)
 
                 boxes = np.hstack((boxes, np.expand_dims(labels, axis=1)))
 
                 if self.mode == 'val':
-                    return img, boxes, masks, num_crowds, height, width
+                    return img, boxes, masks, height, width
                 else:
-                    return img, boxes, masks, num_crowds
+                    return img, boxes, masks
             else:
                 if self.mode == 'val':
                     raise RuntimeError('Error, no valid object in this image.')
                 else:
                     print(f'Warning, no valid object in image: {img_id}. Use a repeated image in this batch.')
-                    return None, None, None, None
+                    return None, None, None
 
     def __len__(self):
         if self.mode == 'train':

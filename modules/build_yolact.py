@@ -12,9 +12,9 @@ class NetWithLoss(nn.Module):
         self.net = net
         self.loss = loss
 
-    def forward(self, images, box_classes, masks_gt, num_crowds):
+    def forward(self, images, box_classes, masks_gt):
         predictions = self.net(images)
-        return self.loss(predictions, box_classes, masks_gt, num_crowds)
+        return self.loss(predictions, box_classes, masks_gt)
 
 
 class Concat(nn.Module):
@@ -28,8 +28,7 @@ class Concat(nn.Module):
         return torch.cat([net(x) for net in self.nets], dim=1, **self.extra_params)
 
 
-class InterpolateModule(nn.Module):
-    # A module version of F.interpolate.
+class InterpolateModule(nn.Module):  # A module version of F.interpolate.
     def __init__(self, *args, **kwdargs):
         super().__init__()
 
@@ -110,19 +109,9 @@ class FPN(nn.Module):
         self.in_channels = in_channels
 
         self.lat_layers = nn.ModuleList([nn.Conv2d(x, 256, kernel_size=1) for x in reversed(self.in_channels)])
-        # ModuleList((0): Conv2d(2048, 256, kernel_size=(1, 1), stride=(1, 1))
-        #            (1): Conv2d(1024, 256, kernel_size=(1, 1), stride=(1, 1))
-        #            (2): Conv2d(512, 256, kernel_size=(1, 1), stride=(1, 1)))
-
         self.pred_layers = nn.ModuleList([nn.Conv2d(256, 256, kernel_size=3, padding=1) for _ in self.in_channels])
-        # ModuleList((0): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-        #            (1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-        #            (2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
-
         self.downsample_layers = nn.ModuleList([nn.Conv2d(256, 256, kernel_size=3, padding=1, stride=2)
                                                 for _ in range(self.num_downsample)])
-        # ModuleList((0): Conv2d(256, 256, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
-        #            (1): Conv2d(256, 256, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)))
 
     def forward(self, backbone_outs):
         out = []

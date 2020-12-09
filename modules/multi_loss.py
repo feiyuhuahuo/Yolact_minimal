@@ -113,7 +113,7 @@ class Multi_Loss(nn.Module):
 
         return loss_s / mask_h / mask_w * self.cfg.semantic_alpha
 
-    def forward(self, predictions, box_class, mask_gt, num_crowds):
+    def forward(self, predictions, box_class, mask_gt):
         box_p = predictions['box']  # (n, 19248, 4)
         class_p = predictions['class']  # (n, 19248, 81)
         coef_p = predictions['coef']  # (n, 19248, 32)
@@ -133,21 +133,10 @@ class Multi_Loss(nn.Module):
             box_gt = box_class[i][:, :-1]
             class_gt[i] = box_class[i][:, -1].long()
 
-            cur_crowds = num_crowds[i]
-            if cur_crowds > 0:
-                split = lambda x: (x[-cur_crowds:], x[:-cur_crowds])
-                # drop the iscrowd boxes and masks
-                crowd_boxes, box_gt = split(box_gt)
-                _, class_gt[i] = split(class_gt[i])
-                _, mask_gt[i] = split(mask_gt[i])
-            else:
-                crowd_boxes = None
-
             all_offsets[i], conf_gt[i], prior_max_box[i], prior_max_index[i] = match(self.cfg,
                                                                                      box_gt,
                                                                                      anchors,
-                                                                                     class_gt[i],
-                                                                                     crowd_boxes)
+                                                                                     class_gt[i])
 
         # all_offsets: the transformed box coordinate offsets of each pair of prior and gt box
         # conf_gt: the foreground and background labels according to the 'pos_thre' and 'neg_thre',

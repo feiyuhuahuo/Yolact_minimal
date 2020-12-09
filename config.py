@@ -85,8 +85,8 @@ class res101_coco:
         self.data_root = '/home/feiyu/Data/'
 
         if self.mode == 'train':
-            self.train_imgs = self.data_root + 'coco2017/val2017/'
-            self.train_ann = self.data_root + 'coco2017/annotations/instances_val2017.json'
+            self.train_imgs = self.data_root + 'coco2017/train2017/'
+            self.train_ann = self.data_root + 'coco2017/annotations/instances_train2017.json'
             self.train_bs = args.train_bs
             self.bs_per_gpu = args.bs_per_gpu
             self.val_interval = args.val_interval
@@ -100,9 +100,6 @@ class res101_coco:
 
             self.pos_iou_thre = 0.5
             self.neg_iou_thre = 0.4
-            # If less than 1, anchors treated as a negative that have a crowd iou over this threshold with
-            # the crowd boxes will be treated as a neutral.
-            self.crowd_iou_thre = 0.7
 
             self.conf_alpha = 1
             self.bbox_alpha = 1.5

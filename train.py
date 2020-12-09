@@ -64,13 +64,13 @@ if cfg.cuda:
     main_gpu = dist.get_rank() == 0
     num_gpu = dist.get_world_size()
 
-    net = DDP(net.cfg.cuda(), [args.local_rank], output_device=args.local_rank, broadcast_buffers=True)
+    net = DDP(net.cuda(), [args.local_rank], output_device=args.local_rank, broadcast_buffers=True)
     train_sampler = DistributedSampler(dataset, shuffle=True)
 
 # If encounters OOM error when training on a 11GB memory GPU with batch_size=8, try set pin_memory= False,
 # not sure if this helps.
 # shuffle must be False if sampler is specified
-data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=0, shuffle=(train_sampler is None),
+data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=cfg.bs_per_gpu // 2, shuffle=(train_sampler is None),
                               collate_fn=train_collate, pin_memory=True, sampler=train_sampler)
 
 step_index = 0
@@ -82,13 +82,13 @@ step = start_step
 cfg_name = cfg.__class__.__name__
 writer = SummaryWriter('tensorboard_log')
 
-try:  # Use try-except to use ctrl+c to stop and save early.
+try:  # try-except can shut down all processes after Ctrl + C.
     while training:
         if train_sampler:
             epoch_seed += 1
             train_sampler.set_epoch(epoch_seed)
 
-        for images, targets, masks, num_crowds in data_loader:
+        for images, targets, masks in data_loader:
             if ((not cfg.cuda) or main_gpu) and step == start_step + 1:
                 timer.start()
 
@@ -103,12 +103,12 @@ try:  # Use try-except to use ctrl+c to stop and save early.
                     param_group['lr'] = cfg.lr * (0.1 ** step_index)
 
             if cfg.cuda:
-                images = images.cfg.cuda().detach()
-                targets = [ann.cfg.cuda().detach() for ann in targets]
-                masks = [mask.cfg.cuda().detach() for mask in masks]
+                images = images.cuda().detach()
+                targets = [ann.cuda().detach() for ann in targets]
+                masks = [mask.cuda().detach() for mask in masks]
 
             with timer.counter('for+loss'):
-                loss_b, loss_m, loss_c, loss_s = net(images, targets, masks, num_crowds)
+                loss_b, loss_m, loss_c, loss_s = net(images, targets, masks)
 
                 if cfg.cuda:
                     # use .all_reduce() to get the summed loss from all GPUs

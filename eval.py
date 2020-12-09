@@ -36,7 +36,7 @@ def evaluate(net, cfg, step=None):
                'mask': [[APDataObject() for _ in cfg.class_names] for _ in iou_thres]}
 
     with torch.no_grad():
-        for i, (img, gt, gt_masks, num_crowd, height, width) in enumerate(data_loader):
+        for i, (img, gt, gt_masks, height, width) in enumerate(data_loader):
             if i == 1:
                 timer.start()
 
@@ -67,8 +67,7 @@ def evaluate(net, cfg, step=None):
                             make_json.add_bbox(dataset.ids[i], classes_p[j], boxes_p[j, :], confs_p[j])
                             make_json.add_mask(dataset.ids[i], classes_p[j], masks_p[j, :, :], confs_p[j])
                 else:
-                    prep_metrics(ap_data, classes_p, confs_p, boxes_p, masks_p, gt,
-                                 gt_masks, num_crowd, height, width, iou_thres)
+                    prep_metrics(ap_data, classes_p, confs_p, boxes_p, masks_p, gt, gt_masks, height, width, iou_thres)
 
             aa = time.perf_counter()
             if i > 0:

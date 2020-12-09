@@ -170,7 +170,7 @@ class APDataObject:
         return sum(y_range) / len(y_range)
 
 
-def prep_metrics(ap_data, classes_p, confs_p, boxes_p, masks_p, gt, gt_masks, num_crowd, height, width, iou_thres):
+def prep_metrics(ap_data, classes_p, confs_p, boxes_p, masks_p, gt, gt_masks, height, width, iou_thres):
     gt_boxes = gt[:, :4]
     gt_boxes[:, [0, 2]] *= width
     gt_boxes[:, [1, 3]] *= height
@@ -178,24 +178,8 @@ def prep_metrics(ap_data, classes_p, confs_p, boxes_p, masks_p, gt, gt_masks, nu
     gt_masks = gt_masks.reshape(-1, height * width)
     masks_p = masks_p.reshape(-1, height * width)
 
-    if num_crowd > 0:
-        split = lambda x: (x[-num_crowd:], x[:-num_crowd])
-        crowd_boxes, gt_boxes = split(gt_boxes)
-        crowd_masks, gt_masks = split(gt_masks)
-        crowd_classes, gt_classes = split(gt_classes)
-
     mask_iou_cache = mask_iou(masks_p, gt_masks)
     bbox_iou_cache = bbox_iou(boxes_p.float(), gt_boxes.float())
-
-    if num_crowd > 0:
-        crowd_mask_iou_cache = mask_iou(masks_p, crowd_masks, iscrowd=True)
-        crowd_bbox_iou_cache = bbox_iou(boxes_p.float(), crowd_boxes.float(), iscrowd=True)
-    else:
-        crowd_mask_iou_cache = None
-        crowd_bbox_iou_cache = None
-
-    iou_types = [('box', lambda i, j: bbox_iou_cache[i, j].item(), lambda i, j: crowd_bbox_iou_cache[i, j].item()),
-                 ('mask', lambda i, j: mask_iou_cache[i, j].item(), lambda i, j: crowd_mask_iou_cache[i, j].item())]
 
     for _class in set(classes_p + gt_classes):
         num_gt_per_class = gt_classes.count(_class)
@@ -203,7 +187,7 @@ def prep_metrics(ap_data, classes_p, confs_p, boxes_p, masks_p, gt, gt_masks, nu
         for iouIdx in range(len(iou_thres)):
             iou_threshold = iou_thres[iouIdx]
 
-            for iou_type, iou_func, crowd_func in iou_types:
+            for iou_type, iou_func in zip(['box', 'mask'], [bbox_iou_cache, mask_iou_cache]):
                 gt_used = [False] * len(gt_classes)
                 ap_obj = ap_data[iou_type][iouIdx][_class]
                 ap_obj.add_gt_positives(num_gt_per_class)
@@ -218,7 +202,7 @@ def prep_metrics(ap_data, classes_p, confs_p, boxes_p, masks_p, gt, gt_masks, nu
                         if gt_used[j] or gt_class != _class:
                             continue
 
-                        iou = iou_func(i, j)
+                        iou = iou_func[i, j].item()
 
                         if iou > max_iou_found:
                             max_iou_found = iou
@@ -228,25 +212,7 @@ def prep_metrics(ap_data, classes_p, confs_p, boxes_p, masks_p, gt, gt_masks, nu
                         gt_used[max_match_idx] = True
                         ap_obj.push(confs_p[i], True)
                     else:
-                        # If the detection matches a crowd, we can just ignore it
-                        matched_crowd = False
-
-                        if num_crowd > 0:
-                            for j in range(len(crowd_classes)):
-                                if crowd_classes[j] != _class:
-                                    continue
-
-                                iou = crowd_func(i, j)
-
-                                if iou > iou_threshold:
-                                    matched_crowd = True
-                                    break
-
-                        # All this crowd code so that we can make sure that our eval code gives the
-                        # same result as COCOEval. There aren't even that many crowd annotations to
-                        # begin with, but accuracy is of the utmost importance.
-                        if not matched_crowd:
-                            ap_obj.push(confs_p[i], False)
+                        ap_obj.push(confs_p[i], False)
 
 
 def calc_map(ap_data, iou_thres, num_classes, step):
@@ -273,7 +239,7 @@ def calc_map(ap_data, iou_thres, num_classes, step):
         all_maps[iou_type]['all'] = (sum(all_maps[iou_type].values()) / (len(all_maps[iou_type].values()) - 1))
 
     row1 = list(all_maps['box'].keys())
-    row1.insert(0, step if step else '')
+    row1.insert(0, f'{step // 1000}k' if step else '')
 
     row2 = list(all_maps['box'].values())
     row2 = [round(aa, 2) for aa in row2]

@@ -54,7 +54,7 @@ def jaccard(box_a, box_b, iscrowd: bool = False):
     return out if use_batch else out.squeeze(0)
 
 
-def match(cfg, box_gt, priors, class_gt, crowd_boxes):
+def match(cfg, box_gt, priors, class_gt):
     # Convert prior boxes to the form of [xmin, ymin, xmax, ymax].
     decoded_priors = torch.cat((priors[:, :2] - priors[:, 2:] / 2, priors[:, :2] + priors[:, 2:] / 2), 1)
 
@@ -73,19 +73,10 @@ def match(cfg, box_gt, priors, class_gt, crowd_boxes):
         each_prior_index[each_box_index[j]] = j
 
     each_prior_box = box_gt[each_prior_index]  # size: [num_priors, 4]
-    conf = class_gt[each_prior_index] + 1  # the class of the max IoU gt box for each prior, size: [num_priors]
 
+    conf = class_gt[each_prior_index] + 1  # the class of the max IoU gt box for each prior, size: [num_priors]
     conf[each_prior_max < cfg.pos_iou_thre] = -1  # label as neutral
     conf[each_prior_max < cfg.neg_iou_thre] = 0  # label as background
-
-    # Deal with crowd annotations for COCO
-    if crowd_boxes is not None and cfg.crowd_iou_thre < 1:
-        # Size [num_priors, num_crowds]
-        crowd_overlaps = jaccard(decoded_priors, crowd_boxes, iscrowd=True)
-        # Size [num_priors]
-        best_crowd_overlap, best_crowd_idx = crowd_overlaps.max(1)
-        # Set non-positives with crowd iou of over the threshold to be neutral.
-        conf[(conf <= 0) & (best_crowd_overlap > cfg.crowd_iou_thre)] = -1
 
     offsets = encode(each_prior_box, priors)
 

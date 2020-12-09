@@ -130,7 +130,7 @@ def photometric_distort(image):
 
 
 # Potentialy sample a random crop from the image and put it in a random place
-def random_crop(image, masks, boxes, labels, num_crowds):
+def random_crop(image, masks, boxes, labels):
     sample_options = (None,  # using entire original input image
                       (0.1, None),  # sample a patch s.t. MIN jaccard w/ obj in .1,.3,.4,.7,.9
                       (0.3, None),
@@ -143,7 +143,7 @@ def random_crop(image, masks, boxes, labels, num_crowds):
     while True:
         mode = random.choice(sample_options)
         if mode is None:
-            return image, masks, boxes, labels, num_crowds
+            return image, masks, boxes, labels
         else:
             min_iou, max_iou = mode
             if min_iou is None:
@@ -197,8 +197,6 @@ def random_crop(image, masks, boxes, labels, num_crowds):
 
                 # [0 ... 0 for num_gt and then 1 ... 1 for num_crowds]
                 crowd_mask = np.zeros(mask.shape, dtype=np.int32)
-                if num_crowds > 0:
-                    crowd_mask[-num_crowds:] = 1
 
                 # have any valid boxes? try again if not
                 # Also make sure you have at least one regular gt
@@ -214,10 +212,6 @@ def random_crop(image, masks, boxes, labels, num_crowds):
                 # take only matching gt labels
                 current_labels = labels[mask]
 
-                # We now might have fewer crowd annotations
-                if num_crowds > 0:
-                    num_crowds = np.sum(crowd_mask[mask])
-
                 # should we use the box left and top corner or the crop's
                 current_boxes[:, :2] = np.maximum(current_boxes[:, :2], rect[:2])
                 # adjust to crop (by substracting crop's left,top)
@@ -230,7 +224,7 @@ def random_crop(image, masks, boxes, labels, num_crowds):
                 # crop the current masks to the same dimensions as the image
                 current_masks = current_masks[:, rect[1]:rect[3], rect[0]:rect[2]]
 
-                return current_image, current_masks, current_boxes, current_labels, num_crowds
+                return current_image, current_masks, current_boxes, current_labels
 
 
 def random_expand(image, masks, boxes):
@@ -282,14 +276,14 @@ def val_aug(img, cfg):
     return img
 
 
-def train_aug(img, masks, boxes, labels, num_crowds, cfg):
+def train_aug(img, masks, boxes, labels, cfg):
     img = img.astype('float32')
     img = photometric_distort(img)
     boxes = to_img_scale_box(img.shape[:2], boxes)
     img, masks, boxes = random_expand(img, masks, boxes)
     # TODO: crop should be in front of expand maybe, crop should be implemented better, but before that,
     #  crowd anns issue should be figured out first, because crop deals with crowd anns.
-    img, masks, boxes, labels, num_crowds = random_crop(img, masks, boxes, labels, num_crowds)
+    img, masks, boxes, labels = random_crop(img, masks, boxes, labels)
     img, masks, boxes = random_mirror(img, masks, boxes)
     img, masks, boxes = resize(img, masks, boxes, cfg.img_size, during_training=True)
 
@@ -311,4 +305,4 @@ def train_aug(img, masks, boxes, labels, num_crowds, cfg):
     boxes = to_01_box(img.shape[:2], boxes)
     img = normalize_and_toRGB(img)
 
-    return img, masks, boxes, labels, num_crowds
+    return img, masks, boxes, labels
