@@ -17,7 +17,6 @@ from utils.common_utils import ProgressBar
 from utils.augmentations import val_aug
 
 parser = argparse.ArgumentParser(description='YOLACT Detection.')
-parser.add_argument('--gpu_id', default='0', type=str, help='The GPUs to use.')
 parser.add_argument('--weight', default='weights/res101_coco_800000.pth', type=str, help='The model for detection.')
 parser.add_argument('--image', default=None, type=str, help='The folder of images for detecting.')
 parser.add_argument('--video', default=None, type=str, help='The path of the video to evaluate.')

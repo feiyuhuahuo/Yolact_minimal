@@ -44,7 +44,7 @@ python train.py --train_bs=2
 # Train with resnet101 backbone on one GPU with a batch size of 8 (default).
 python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --train_bs=8
 # Train on multiple GPUs (i.e. two GPUs, 8 images per GPU).
-export CUDA_VISIBLE_DEVICES=0,1
+export CUDA_VISIBLE_DEVICES=0,1  # Select the GPU to use.
 python -m torch.distributed.launch --nproc_per_node=2 --master_port=$((RANDOM)) train.py --train_bs=16
 # Train with other configurations (res101_coco, res50_coco, res50_pascal, res101_custom, res50_custom, in total).
 python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --cfg=res50_coco
@@ -66,6 +66,11 @@ tensorboard --logdir=tensorboard_log
 
 ## Evalution
 ```Shell
+# Select the GPU to use.
+export CUDA_VISIBLE_DEVICES=0
+```
+
+```Shell
 # Evaluate on COCO val2017 (configuration will be parsed according to the model name).
 python eval.py --weight=weights/res101_coco_800000.pth
 ```
@@ -82,7 +87,13 @@ python eval.py --weight=weights/res101_coco_800000.pth --coco_api
 ```
 ## Detect
 - detect result  
-![Example 2](readme_imgs/result.jpg)
+![Example 2](readme_imgs/result.jpg)  
+  
+```Shell
+# Select the GPU to use.
+export CUDA_VISIBLE_DEVICES=0
+```
+
 ```Shell
 # To detect images, pass the path of the image folder, detected images will be saved in `results/images`.
 python detect.py --weight=weights/res101_coco_800000.pth --image=images

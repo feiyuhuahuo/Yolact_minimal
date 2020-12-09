@@ -15,7 +15,6 @@ from utils.common_utils import ProgressBar, MakeJson, APDataObject, prep_metrics
 from config import get_config
 
 parser = argparse.ArgumentParser(description='YOLACT COCO Evaluation')
-parser.add_argument('--gpu_id', default='0', type=str, help='The GPUs to use.')
 parser.add_argument('--img_size', type=int, default=550, help='The image size for validation.')
 parser.add_argument('--weight', type=str, default='weights/res101_coco_800000.pth', help='The validation model.')
 parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')

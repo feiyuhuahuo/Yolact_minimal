@@ -238,8 +238,8 @@ def get_config(args, mode):
             print('\n-----No GPU found, training on CPU.-----')
     else:
         if args.cuda:
+            args.gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES')
             assert args.gpu_id.isdigit(), f'Only one GPU can be used in val/detect mode, got {args.gpu_id}.'
-            os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
         else:
             args.gpu_id = None
             print('\n-----No GPU found, validate on CPU.-----')
