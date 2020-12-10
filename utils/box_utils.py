@@ -148,7 +148,7 @@ def decode(box_p, priors):
     return boxes
 
 
-def sanitize_coordinates(_x1, _x2, img_size: int, padding: int = 0):
+def sanitize_coordinates(_x1, _x2, img_size, padding=0):
     """
     Sanitizes the input coordinates so that x1 < x2, x1 != x2, x1 >= 0, and x2 <= image_size.
     Also converts from relative to absolute coordinates and casts the results to long tensors.

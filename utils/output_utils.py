@@ -165,11 +165,13 @@ def after_nms(nms_outs, img_h, img_w, cfg=None, img_name=None):
         masks = crop(masks, boxes)
 
     masks = masks.permute(2, 0, 1).contiguous()
-    masks = F.interpolate(masks.unsqueeze(0), (img_h, img_w), mode='bilinear', align_corners=False).squeeze(0)
-    masks.gt_(0.5)  # Binarize the masks
 
-    boxes[:, 0], boxes[:, 2] = sanitize_coordinates(boxes[:, 0], boxes[:, 2], img_w)
-    boxes[:, 1], boxes[:, 3] = sanitize_coordinates(boxes[:, 1], boxes[:, 3], img_h)
+    ori_size = max(img_h, img_w)
+    masks = F.interpolate(masks.unsqueeze(0), (ori_size, ori_size), mode='bilinear', align_corners=False).squeeze(0)
+    masks.gt_(0.5)  # Binarize the masks because of interpolation.
+    masks = masks[:, 0: img_h, :] if img_h < img_w else masks[:, :, 0: img_w]
+
+    boxes *= ori_size
     boxes = boxes.long()
 
     return class_ids, classes, boxes, masks

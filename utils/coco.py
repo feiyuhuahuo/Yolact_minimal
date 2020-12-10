@@ -57,7 +57,7 @@ class COCODetection(data.Dataset):
         if self.mode == 'detect':
             img_name = self.image_path[index]
             img_origin = cv2.imread(img_name)
-            img_normed = val_aug(img_origin, self.cfg)
+            img_normed = val_aug(img_origin, self.cfg.img_size)
             return img_normed, img_origin, img_name.split('/')[-1]
         else:
             img_id = self.ids[index]
@@ -76,8 +76,7 @@ class COCODetection(data.Dataset):
             height, width, _ = img.shape
 
             assert len(target) > 0, 'No annotation in this image!'
-            scale = np.array([width, height, width, height])
-            box_list, mask_list = [], []
+            box_list, mask_list, label_list = [], [], []
 
             for aa in target:
                 bbox = aa['bbox']
@@ -88,34 +87,26 @@ class COCODetection(data.Dataset):
                         continue
 
                 x1y1x2y2_box = np.array([bbox[0], bbox[1], bbox[0] + bbox[2], bbox[1] + bbox[3]])
-                final_box = list(x1y1x2y2_box / scale)
                 category = self.continuous_id[aa['category_id']] - 1
-                final_box.append(category)
 
-                box_list.append(final_box)  # (xmin, ymin, xmax, ymax, label_idx), between 0~1
+                box_list.append(x1y1x2y2_box)
                 mask_list.append(self.coco.annToMask(aa))
-                # Uncomment this to visualize the masks.
-                # cv2.imshow('aa', mask_list[0]*255)
-                # cv2.waitKey()
+                label_list.append(category)
 
             if len(box_list) > 0:
-                box_array = np.array(box_list)
+                boxes = np.array(box_list)
                 masks = np.stack(mask_list, axis=0)
+                labels = np.array(label_list)
+                assert masks.shape == (boxes.shape[0], height, width), 'Unmatched annotations.'
 
-                assert masks.shape == (box_array.shape[0], height, width), 'Unmatched annotations.'
-
-                boxes, labels = box_array[:, :4], box_array[:, 4]
                 if self.mode == 'train':
-                    img, masks, boxes, labels = train_aug(img, masks, boxes, labels, self.cfg)
-                elif self.mode == 'val':
-                    img = val_aug(img, self.cfg)
-
-                boxes = np.hstack((boxes, np.expand_dims(labels, axis=1)))
-
-                if self.mode == 'val':
-                    return img, boxes, masks, height, width
-                else:
+                    img, masks, boxes, labels = train_aug(img, masks, boxes, labels, self.cfg.img_size)
+                    boxes = np.hstack((boxes, np.expand_dims(labels, axis=1)))
                     return img, boxes, masks
+                elif self.mode == 'val':
+                    img = val_aug(img, self.cfg.img_size)
+                    boxes = np.hstack((boxes, np.expand_dims(labels, axis=1)))
+                    return img, boxes, masks, height, width
             else:
                 if self.mode == 'val':
                     raise RuntimeError('Error, no valid object in this image.')

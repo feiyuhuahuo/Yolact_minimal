@@ -85,8 +85,8 @@ class res101_coco:
         self.data_root = '/home/feiyu/Data/'
 
         if self.mode == 'train':
-            self.train_imgs = self.data_root + 'coco2017/train2017/'
-            self.train_ann = self.data_root + 'coco2017/annotations/instances_train2017.json'
+            self.train_imgs = self.data_root + 'coco2017/val2017/'
+            self.train_ann = self.data_root + 'coco2017/annotations/instances_val2017.json'
             self.train_bs = args.train_bs
             self.bs_per_gpu = args.bs_per_gpu
             self.val_interval = args.val_interval
@@ -235,7 +235,7 @@ def get_config(args, mode):
             print('\n-----No GPU found, training on CPU.-----')
     else:
         if args.cuda:
-            args.gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES')
+            args.gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES') if os.environ.get('CUDA_VISIBLE_DEVICES') else '0'
             assert args.gpu_id.isdigit(), f'Only one GPU can be used in val/detect mode, got {args.gpu_id}.'
         else:
             args.gpu_id = None
