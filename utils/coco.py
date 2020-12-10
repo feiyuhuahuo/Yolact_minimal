@@ -105,6 +105,7 @@ class COCODetection(data.Dataset):
                     return img, boxes, masks
                 elif self.mode == 'val':
                     img = val_aug(img, self.cfg.img_size)
+                    boxes = boxes / np.array([width, height, width, height])  # to 0~1 scale
                     boxes = np.hstack((boxes, np.expand_dims(labels, axis=1)))
                     return img, boxes, masks, height, width
             else:
