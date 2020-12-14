@@ -86,7 +86,7 @@ def evaluate(net, cfg, step=None):
 
         if cfg.coco_api:
             make_json.dump()
-            print(f'\nJson files dumped, saved in: \'results/\', start evaluting.')
+            print(f'\nJson files dumped, saved in: \'results/\', start evaluating.')
 
             gt_annotations = COCO(cfg.val_ann)
             bbox_dets = gt_annotations.loadRes(f'results/bbox_detections.json')

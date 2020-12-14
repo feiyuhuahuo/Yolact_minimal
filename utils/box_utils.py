@@ -27,13 +27,12 @@ def intersect(box_a, box_b):
     return inter[:, :, :, 0] * inter[:, :, :, 1]
 
 
-def jaccard(box_a, box_b, iscrowd: bool = False):
+def jaccard(box_a, box_b):
     """
     Compute the IoU of two sets of boxes.
     Args:
         box_a: (tensor) Ground truth bounding boxes, Shape: [num_objects,4]
         box_b: (tensor) Prior boxes from priorbox layers, Shape: [num_priors,4]
-        iscrowd: if True, put the crowd in box_b
     Return:
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
@@ -50,7 +49,7 @@ def jaccard(box_a, box_b, iscrowd: bool = False):
         inter)  # [A,B]
     union = area_a + area_b - inter
 
-    out = inter / area_a if iscrowd else inter / union
+    out = inter / union
     return out if use_batch else out.squeeze(0)
 
 
@@ -166,7 +165,7 @@ def sanitize_coordinates(_x1, _x2, img_size, padding=0):
     return x1, x2
 
 
-def crop(masks, boxes, padding: int = 1):
+def crop(masks, boxes, padding=1):
     """
     "Crop" predicted masks by zeroing out everything not in the predicted bbox.
     Args:
@@ -190,7 +189,7 @@ def crop(masks, boxes, padding: int = 1):
     return masks * crop_mask.float()
 
 
-def mask_iou(mask1, mask2, iscrowd=False):
+def mask_iou(mask1, mask2):
     """
     Inputs inputs are matricies of size _ x N. Output is size _1 x _2.
     Note: if iscrowd is True, then mask2 should be the crowd.
@@ -199,16 +198,11 @@ def mask_iou(mask1, mask2, iscrowd=False):
     area1 = torch.sum(mask1, dim=1).reshape(1, -1)
     area2 = torch.sum(mask2, dim=1).reshape(1, -1)
     union = (area1.t() + area2) - intersection
-
-    if iscrowd:
-        # Make sure to brodcast to the right dimension
-        ret = intersection / area1.t()
-    else:
-        ret = intersection / union
+    ret = intersection / union
 
     return ret.cpu()
 
 
-def bbox_iou(bbox1, bbox2, iscrowd=False):
-    ret = jaccard(bbox1, bbox2, iscrowd)
+def bbox_iou(bbox1, bbox2):
+    ret = jaccard(bbox1, bbox2)
     return ret.cpu()

@@ -77,7 +77,7 @@ class res101_coco:
         self.continuous_id = COCO_LABEL_MAP
         self.scales = [int(self.img_size / 550 * aa) for aa in (24, 48, 96, 192, 384)]
         self.aspect_ratios = [1, 1 / 2, 2]
-        self.use_square_anchors = True  # If False, loss is not stable.
+        self.use_square_anchors = False  # If False, loss is not stable.
         if self.mode == 'train':
             self.weight = args.resume if args.resume else 'weights/resnet101_reducedfc.pth'
         else:
@@ -85,8 +85,8 @@ class res101_coco:
         self.data_root = '/home/feiyu/Data/'
 
         if self.mode == 'train':
-            self.train_imgs = self.data_root + 'coco2017/val2017/'
-            self.train_ann = self.data_root + 'coco2017/annotations/instances_val2017.json'
+            self.train_imgs = self.data_root + 'coco2017/train2017/'
+            self.train_ann = self.data_root + 'coco2017/annotations/instances_train2017.json'
             self.train_bs = args.train_bs
             self.bs_per_gpu = args.bs_per_gpu
             self.val_interval = args.val_interval
@@ -219,8 +219,9 @@ def get_config(args, mode):
     args.cuda = torch.cuda.is_available()
     args.mode = mode
 
-    if args.mode == 'train':
-        if args.cuda:
+    if args.cuda:
+        args.gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES') if os.environ.get('CUDA_VISIBLE_DEVICES') else '0'
+        if args.mode == 'train':
             torch.cuda.set_device(args.local_rank)
             dist.init_process_group(backend='nccl', init_method='env://')
 
@@ -228,17 +229,14 @@ def get_config(args, mode):
             num_gpus = int(os.environ['WORLD_SIZE'])
             assert args.train_bs % num_gpus == 0, 'Total training batch size must be divisible by GPU number.'
             args.bs_per_gpu = int(args.train_bs / num_gpus)
-            args.gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES')
         else:
-            args.bs_per_gpu = args.train_bs
-            args.gpu_id = None
-            print('\n-----No GPU found, training on CPU.-----')
-    else:
-        if args.cuda:
-            args.gpu_id = os.environ.get('CUDA_VISIBLE_DEVICES') if os.environ.get('CUDA_VISIBLE_DEVICES') else '0'
             assert args.gpu_id.isdigit(), f'Only one GPU can be used in val/detect mode, got {args.gpu_id}.'
+    else:
+        args.gpu_id = None
+        if args.mode == 'train':
+            args.bs_per_gpu = args.train_bs
+            print('\n-----No GPU found, training on CPU.-----')
         else:
-            args.gpu_id = None
             print('\n-----No GPU found, validate on CPU.-----')
 
     cfg = globals()[args.cfg](args)

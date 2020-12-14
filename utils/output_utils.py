@@ -4,7 +4,7 @@ from utils.box_utils import crop, sanitize_coordinates, decode, jaccard
 import torch
 import numpy as np
 from config import COLORS
-from build_stuff.cython_nms import nms as cnms
+from cython_nms import nms as cnms
 
 
 def fast_nms(box_thre, coef_thre, class_thre, cfg, second_threshold=False):

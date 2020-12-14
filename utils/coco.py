@@ -101,8 +101,11 @@ class COCODetection(data.Dataset):
 
                 if self.mode == 'train':
                     img, masks, boxes, labels = train_aug(img, masks, boxes, labels, self.cfg.img_size)
-                    boxes = np.hstack((boxes, np.expand_dims(labels, axis=1)))
-                    return img, boxes, masks
+                    if img is None:
+                        return None, None, None
+                    else:
+                        boxes = np.hstack((boxes, np.expand_dims(labels, axis=1)))
+                        return img, boxes, masks
                 elif self.mode == 'val':
                     img = val_aug(img, self.cfg.img_size)
                     boxes = boxes / np.array([width, height, width, height])  # to 0~1 scale

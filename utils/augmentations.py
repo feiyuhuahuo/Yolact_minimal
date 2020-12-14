@@ -76,7 +76,7 @@ def photometric_distort(img):
     return img
 
 
-def crop(ori_h, crop_h, ori_w, crop_w, img, masks, boxes, labels, keep_ratio=0.4):
+def crop(ori_h, crop_h, ori_w, crop_w, img, masks, boxes, labels, keep_ratio=0.3):
     num_boxes = boxes.shape[0]
     box_x1, box_y1, box_x2, box_y2 = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
     box_areas = (box_x2 - box_x1) * (box_y2 - box_y1)
@@ -85,8 +85,8 @@ def crop(ori_h, crop_h, ori_w, crop_w, img, masks, boxes, labels, keep_ratio=0.4
     cut_out = True
     while cut_out:
         ii += 1
-        if ii // 100 >= 1 and ii % 100 == 10:
-            print(f'iter in random_crop: {ii}---------------------------------')
+        if ii > 1000:
+            return None, None, None, None
 
         random_x1 = random.randint(0, ori_w - crop_w)
         random_y1 = random.randint(0, ori_h - crop_h)
@@ -232,11 +232,17 @@ def train_aug(img, masks, boxes, labels, train_size):
     img = photometric_distort(img)
     img, masks, boxes = random_mirror(img, masks, boxes)
     img, masks, boxes, labels = random_crop(img, masks, boxes, labels, crop_ratio=(0.6, 1))
+    if img is None:
+        return None, None, None, None
     img, masks, boxes = pad_to_square(img, masks, boxes, during_training=True)
     img, masks, boxes = multi_scale_resize(img, masks, boxes, (8, 24), during_training=True)  # multiple of 32
     img, masks, boxes, labels = to_train_size(img, masks, boxes, labels, train_size)
+    if img is None:
+        return None, None, None, None
     boxes = clip_box(img.shape[:2], boxes)
-    boxes, masks, labels = remove_small_box(boxes, masks, labels, area_limit=16)
+    boxes, masks, labels = remove_small_box(boxes, masks, labels, area_limit=20)
+    if boxes.shape[0] == 0:
+        return None, None, None, None
     assert boxes.shape[0] == masks.shape[0] == labels.shape[0], 'Error, unequal boxes, masks or labels number.'
     # show_ann(img, masks, boxes, labels)
     boxes = to_01_box(img.shape[:2], boxes)
