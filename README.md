@@ -17,7 +17,7 @@ Other common packages.
 ## Prepare
 - Build cython-nms  
 ```Shell
-python build_stuff/setup.py build_ext --inplace
+python setup.py build_ext --inplace
 ```
 - Download COCO 2017 datasets, modify `self.data_root` in 'res101_coco' in `config.py`. 
 - Download weights.
@@ -26,8 +26,8 @@ Yolact trained weights.
 
 |Backbone   | box mAP  | mask mAP  | Google Drive                                                                                                         |Baidu Cloud          |
 |:---------:|:--------:|:---------:|:--------------------------------------------------------------------------------------------------------------------:|:----------------------------------------------------------------:|
-|Resnet50   | 30.25    | 28.04     | [res50_coco_800000.pth](https://drive.google.com/file/d/1kMm0tBZh8NuXBLmXKzVhOKR98Hpd81ja/view?usp=sharing)  |[password: mksf](https://pan.baidu.com/s/1XDeDwg1Xw9GJCucJNqdNZw) |
-|Resnet101  | 32.54    | 29.83     | [res101_coco_800000.pth](https://drive.google.com/file/d/1KyjhkLEw0D8zP8IiJTTOR0j6PGecKbqS/view?usp=sharing)      |[password: oubr](https://pan.baidu.com/s/1uX_v1RPISxgwQ2LdsbJrJQ) |
+|Resnet50 (to be updated)  | 30.25    | 28.04     | [res50_coco_800000.pth](https://drive.google.com/file/d/1kMm0tBZh8NuXBLmXKzVhOKR98Hpd81ja/view?usp=sharing)  |[password: mksf](https://pan.baidu.com/s/1XDeDwg1Xw9GJCucJNqdNZw) |
+|Resnet101  | 32.9     | 30.5     | [res101_coco_800000.pth](https://drive.google.com/file/d/1KyjhkLEw0D8zP8IiJTTOR0j6PGecKbqS/view?usp=sharing)      |[password: oubr](https://pan.baidu.com/s/1uX_v1RPISxgwQ2LdsbJrJQ) |
 
 ImageNet pre-trained weights.  
 
@@ -36,11 +36,12 @@ ImageNet pre-trained weights.
 | Resnet50  | [resnet50-19c8e357.pth](https://drive.google.com/file/d/1Uwz7BYHEmPuMCRQDW2wD00Jbeb-jxWng/view?usp=sharing)     | [password: a6ee](https://pan.baidu.com/s/1aFLE-e1KdH_FxRlisWzTHw) |
 | Resnet101 | [resnet101_reducedfc.pth](https://drive.google.com/file/d/1vaDqYNB__jTB7_p9G6QTMvoMDlGkHzhP/view?usp=sharing)   | [password: kdht](https://pan.baidu.com/s/1ha4aH7xVg-0J0Ukcqcr6OQ) |
 
+## Improvement log
+2020.11.2. Improved data augmentation, use rectangle anchors, training is stable, infinite loss no longer appears.  
+2020.11.2. DDP training, train batch size increased to 16. +0.4 box mAP, +0.7 mask mAP (resnet101).  
 
 ## Train
 ```Shell
-# Train on CPU.
-python train.py --train_bs=2
 # Train with resnet101 backbone on one GPU with a batch size of 8 (default).
 python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --train_bs=8
 # Train on multiple GPUs (i.e. two GPUs, 8 images per GPU).
@@ -48,7 +49,7 @@ export CUDA_VISIBLE_DEVICES=0,1  # Select the GPU to use.
 python -m torch.distributed.launch --nproc_per_node=2 --master_port=$((RANDOM)) train.py --train_bs=16
 # Train with other configurations (res101_coco, res50_coco, res50_pascal, res101_custom, res50_custom, in total).
 python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --cfg=res50_coco
-# Train with different batch_size (freeze_bn will be set as True in `config.py` when the batch_size is smaller than 4).
+# Train with different batch_size (batch size should not be smaller than 4).
 python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --train_bs=4
 # Train with different image size (anchor settings related to image size will be adjusted automatically).
 python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --img_size=400
@@ -58,6 +59,8 @@ python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) 
 python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --resume latest_res101_coco_35000.pth
 # Set evalution interval during training, set -1 to disable it.  
 python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --val_interval 8000
+# Train on CPU.
+python train.py --train_bs=4
 ```
 ## Use tensorboard
 ```Shell
@@ -72,18 +75,14 @@ export CUDA_VISIBLE_DEVICES=0
 
 ```Shell
 # Evaluate on COCO val2017 (configuration will be parsed according to the model name).
+# The metric API in this project can not get the exact COCO mAP, but the evaluation speed is fast. 
 python eval.py --weight=weights/res101_coco_800000.pth
-```
-- The result should be:  
-![Example 1](readme_imgs/mAP.png)
-
-```Shell
+# To get the exact COCO mAP:
+python eval.py --weight=weights/res101_coco_800000.pth --coco_api
 # Evaluate with a specified number of images.
 python eval.py --weight=weights/res101_coco_800000.pth --val_num=1000
 # Evaluate with traditional nms.
 python eval.py --weight=weights/res101_coco_800000.pth --traditional_nms
-# Create a json file and then use the COCO API to evaluate the COCO detection result.
-python eval.py --weight=weights/res101_coco_800000.pth --coco_api
 ```
 ## Detect
 - detect result  
@@ -157,5 +156,4 @@ python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) 
 - Some parameters need to be taken care of by yourself:
 1) Training batch size, try not to use batch size smaller than 4.
 2) Anchor size, the anchor size should match with the object scale of your dataset.
-3) Total training steps, learning rate decay steps and the warm up step, these should be decided according to the dataset size, overwrite `self.max_iter`, `self.decay_step`, `self.warmup_until` in your configuration.
-4) If you encounter infinite loss, try a longer warm up step or use a smaller learning rate.
+3) Total training steps, learning rate decay steps and the warm up step, these should be decided according to the dataset size, overwrite `self.lr_steps`, `self.warmup_until` in your configuration.

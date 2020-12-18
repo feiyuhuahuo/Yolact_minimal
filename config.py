@@ -94,9 +94,8 @@ class res101_coco:
             self.bs_factor = self.train_bs / 8
             self.lr = 0.001 * self.bs_factor
             self.warmup_init = self.lr * 0.1
-            self.warmup_until = 500
-            self.max_iter = int(800000 / self.bs_factor)
-            self.lr_steps = tuple([int(aa / self.bs_factor) for aa in (280000, 600000, 700000, 750000)])
+            self.warmup_until = int(500 / self.bs_factor)
+            self.lr_steps = tuple([int(aa / self.bs_factor) for aa in (0, 280000, 600000, 700000, 750000, 800000)])
 
             self.pos_iou_thre = 0.5
             self.neg_iou_thre = 0.4
@@ -108,11 +107,6 @@ class res101_coco:
 
             # The max number of masks to train for one image.
             self.masks_to_train = 100
-            # Whether to train the semantic segmentations branch, this branch is only implemented during training.
-            self.train_semantic = True
-            # Freeze the backbone bn layer during training, any other additional
-            # bn layers behind backbone will not be frozen.
-            self.freeze_bn = True if self.bs_per_gpu <= 4 else False
 
         if self.mode in ('train', 'val'):
             self.val_imgs = self.data_root + 'coco2017/val2017/'
@@ -164,8 +158,7 @@ class res50_pascal(res101_coco):
         if self.mode == 'train':
             self.train_imgs = self.data_root + 'pascal_sbd/img'
             self.train_ann = self.data_root + 'pascal_sbd/pascal_sbd_train.json'
-            self.max_iter = int(120000 / self.bs_factor)
-            self.lr_steps = tuple([int(aa / self.bs_factor) for aa in (60000, 100000)])
+            self.lr_steps = tuple([int(aa / self.bs_factor) for aa in (0, 60000, 100000, 120000)])
             self.scales = [int(self.img_size / 550 * aa) for aa in (32, 64, 128, 256, 512)]
 
         if self.mode in ('train', 'val'):
@@ -184,8 +177,7 @@ class res101_custom(res101_coco):
             self.train_imgs = 'custom_dataset/'
             self.train_ann = 'custom_dataset/custom_ann.json'
             self.warmup_until = 100  # just an example
-            self.max_iter = 2000  # just an example
-            self.lr_steps = (1200, 1600)  # just an example
+            self.lr_steps = (0, 1200, 1600, 2000)  # just an example
 
         if self.mode in ('train', 'val'):
             self.val_imgs = ''  # decide by yourself
@@ -207,8 +199,7 @@ class res50_custom(res101_coco):
             self.train_imgs = 'custom_dataset/'
             self.train_ann = 'custom_dataset/custom_ann.json'
             self.warmup_until = 100  # just an example
-            self.max_iter = 2000  # just an example
-            self.lr_steps = (1200, 1600)  # just an example
+            self.lr_steps = (0, 1200, 1600, 2000)  # just an example
 
         if self.mode in ('train', 'val'):
             self.val_imgs = ''  # decide by yourself

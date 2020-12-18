@@ -99,12 +99,11 @@ def traditional_nms(boxes, masks, scores, cfg):
     return boxes[idx] / cfg.img_size, masks[idx], class_ids, scores
 
 
-def nms(cfg, net_outs):
-    box_p = net_outs['box'].squeeze()  # [19248, 4]
-    class_p = net_outs['class'].squeeze()  # [19248, 81]
-    coef_p = net_outs['coef'].squeeze()  # [19248, 32]
-    anchors = net_outs['anchors']  # [19248, 4]
-    proto_p = net_outs['proto'].squeeze()  # [138, 138, 32]
+def nms(class_pred, box_pred, coef_pred, proto_out, anchors, cfg):
+    class_p = class_pred.squeeze()  # [19248, 81]
+    box_p = box_pred.squeeze()  # [19248, 4]
+    coef_p = coef_pred.squeeze()  # [19248, 32]
+    proto_p = proto_out.squeeze()  # [138, 138, 32]
 
     class_p = class_p.transpose(1, 0).contiguous()  # [81, 19248]
     box_decode = decode(box_p, anchors)  # [19248, 4]
@@ -121,48 +120,39 @@ def nms(cfg, net_outs):
     coef_thre = coef_p[keep, :]
 
     if class_thre.size(1) == 0:
-        result = None
+        return None * 5
     else:
         if not cfg.traditional_nms:
             box_thre, coef_thre, class_ids, class_thre = fast_nms(box_thre, coef_thre, class_thre, cfg)
         else:
             box_thre, coef_thre, class_ids, class_thre = traditional_nms(box_thre, coef_thre, class_thre, cfg)
 
-        result = {'box': box_thre, 'coef': coef_thre, 'class_ids': class_ids, 'class': class_thre}
-
-        if result is not None and proto_p is not None:
-            result['proto'] = proto_p
-
-    return result
+        return class_ids, class_thre, box_thre, coef_thre, proto_p
 
 
-def after_nms(nms_outs, img_h, img_w, cfg=None, img_name=None):
-    if nms_outs is None:
-        return [torch.Tensor()] * 4
+def after_nms(ids_p, class_p, box_p, coef_p, proto_p, img_h, img_w, cfg=None, img_name=None):
+    if ids_p is None:
+        return None * 4
 
     if cfg and cfg.visual_thre > 0:
-        keep = nms_outs['class'] >= cfg.visual_thre
+        keep = class_p >= cfg.visual_thre
+        # import pdb
+        # pdb.set_trace()
+        if not keep.any():
+            return None * 4
 
-        for k in nms_outs:
-            if k != 'proto':
-                nms_outs[k] = nms_outs[k][keep]
-
-        if nms_outs['class'].size(0) == 0:
-            return [torch.Tensor()] * 4
-
-    class_ids = nms_outs['class_ids']
-    boxes = nms_outs['box']
-    classes = nms_outs['class']
-    coefs = nms_outs['coef']
-    proto_data = nms_outs['proto']
+        ids_p = ids_p[keep]
+        class_p = class_p[keep]
+        box_p = box_p[keep]
+        coef_p = coef_p[keep]
 
     if cfg and cfg.save_lincomb:
-        draw_lincomb(proto_data, coefs, img_name)
+        draw_lincomb(proto_p, coef_p, img_name)
 
-    masks = torch.sigmoid(torch.matmul(proto_data, coefs.t()))
+    masks = torch.sigmoid(torch.matmul(proto_p, coef_p.t()))
 
-    if not cfg or not cfg.no_crop:  # Crop masks by boxes
-        masks = crop(masks, boxes)
+    if not cfg or not cfg.no_crop:  # Crop masks by box_p
+        masks = crop(masks, box_p)
 
     masks = masks.permute(2, 0, 1).contiguous()
 
@@ -171,10 +161,10 @@ def after_nms(nms_outs, img_h, img_w, cfg=None, img_name=None):
     masks.gt_(0.5)  # Binarize the masks because of interpolation.
     masks = masks[:, 0: img_h, :] if img_h < img_w else masks[:, :, 0: img_w]
 
-    boxes *= ori_size
-    boxes = boxes.long()
+    box_p *= ori_size
+    box_p = box_p.long()
 
-    return class_ids, classes, boxes, masks
+    return ids_p, class_p, box_p, masks
 
 
 def draw_lincomb(proto_data, masks, img_name):
@@ -209,16 +199,20 @@ def draw_lincomb(proto_data, masks, img_name):
         cv2.imwrite(f'results/images/lincomb_{img_name}', arr_img)
 
 
-def draw_img(results, img_origin, cfg, img_name=None, fps=None):
-    class_ids, classes, boxes, masks = [aa.cpu().numpy() for aa in results]
-    num_detected = class_ids.shape[0]
+def draw_img(ids_p, class_p, box_p, mask_p, img_origin, cfg, img_name=None, fps=None):
+    ids_p = ids_p.cpu().numpy()
+    class_p = class_p.cpu().numpy()
+    box_p = box_p.cpu().numpy()
+    mask_p = mask_p.cpu().numpy()
+
+    num_detected = ids_p.shape[0]
 
     if num_detected == 0:
         return img_origin
 
     img_fused = img_origin
     if not cfg.hide_mask:
-        masks_semantic = masks * (class_ids[:, None, None] + 1)  # expand class_ids' shape for broadcasting
+        masks_semantic = mask_p * (ids_p[:, None, None] + 1)  # expand ids_p' shape for broadcasting
         # The color of the overlap area is different because of the '%' operation.
         masks_semantic = masks_semantic.astype('int').sum(axis=0) % (cfg.num_classes - 1)
         color_masks = COLORS[masks_semantic].astype('uint8')
@@ -226,11 +220,11 @@ def draw_img(results, img_origin, cfg, img_name=None, fps=None):
 
         if cfg.cutout:
             for i in range(num_detected):
-                one_obj = np.tile(masks[i], (3, 1, 1)).transpose((1, 2, 0))
+                one_obj = np.tile(mask_p[i], (3, 1, 1)).transpose((1, 2, 0))
                 one_obj = one_obj * img_origin
-                new_mask = masks[i] == 0
+                new_mask = mask_p[i] == 0
                 new_mask = np.tile(new_mask * 255, (3, 1, 1)).transpose((1, 2, 0))
-                x1, y1, x2, y2 = boxes[i, :]
+                x1, y1, x2, y2 = box_p[i, :]
                 img_matting = (one_obj + new_mask)[y1:y2, x1:x2, :]
                 cv2.imwrite(f'results/images/{img_name}_{i}.jpg', img_matting)
 
@@ -240,13 +234,13 @@ def draw_img(results, img_origin, cfg, img_name=None, fps=None):
 
     if not cfg.hide_bbox:
         for i in reversed(range(num_detected)):
-            x1, y1, x2, y2 = boxes[i, :]
+            x1, y1, x2, y2 = box_p[i, :]
 
-            color = COLORS[class_ids[i] + 1].tolist()
+            color = COLORS[ids_p[i] + 1].tolist()
             cv2.rectangle(img_fused, (x1, y1), (x2, y2), color, thickness)
 
-            class_name = cfg.class_names[class_ids[i]]
-            text_str = f'{class_name}: {classes[i]:.2f}' if not cfg.hide_score else class_name
+            class_name = cfg.class_names[ids_p[i]]
+            text_str = f'{class_name}: {class_p[i]:.2f}' if not cfg.hide_score else class_name
 
             text_w, text_h = cv2.getTextSize(text_str, font, scale, thickness)[0]
             cv2.rectangle(img_fused, (x1, y1), (x1 + text_w, y1 + text_h + 5), color, -1)

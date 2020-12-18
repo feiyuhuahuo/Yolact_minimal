@@ -8,7 +8,7 @@ from pycocotools.cocoeval import COCOeval
 import torch.backends.cudnn as cudnn
 
 from utils.coco import COCODetection, val_collate
-from modules.build_yolact import Yolact
+from modules.yolact import Yolact
 from utils import timer
 from utils.output_utils import after_nms, nms
 from utils.common_utils import ProgressBar, MakeJson, APDataObject, prep_metrics, calc_map
@@ -36,7 +36,7 @@ def evaluate(net, cfg, step=None):
                'mask': [[APDataObject() for _ in cfg.class_names] for _ in iou_thres]}
 
     with torch.no_grad():
-        for i, (img, gt, gt_masks, height, width) in enumerate(data_loader):
+        for i, (img, gt, gt_masks, img_h, img_w) in enumerate(data_loader):
             if i == 1:
                 timer.start()
 
@@ -44,19 +44,19 @@ def evaluate(net, cfg, step=None):
                 img, gt, gt_masks = img.cuda(), gt.cuda(), gt_masks.cuda()
 
             with timer.counter('forward'):
-                net_outs = net(img)
+                class_p, box_p, coef_p, proto_p, anchors = net(img)
 
             with timer.counter('nms'):
-                nms_outs = nms(cfg, net_outs)
+                ids_p, class_p, box_p, coef_p, proto_p = nms(class_p, box_p, coef_p, proto_p, anchors, cfg)
 
             with timer.counter('after_nms'):
-                classes_p, confs_p, boxes_p, masks_p = after_nms(nms_outs, height, width)
-                if classes_p.size(0) == 0:
+                ids_p, class_p, boxes_p, masks_p = after_nms(ids_p, class_p, box_p, coef_p, proto_p, img_h, img_w)
+                if ids_p is None:
                     continue
 
             with timer.counter('metric'):
-                classes_p = list(classes_p.cpu().numpy().astype(int))
-                confs_p = list(confs_p.cpu().numpy().astype(float))
+                ids_p = list(ids_p.cpu().numpy().astype(int))
+                class_p = list(class_p.cpu().numpy().astype(float))
 
                 if cfg.coco_api:
                     boxes_p = boxes_p.cpu().numpy()
@@ -64,10 +64,10 @@ def evaluate(net, cfg, step=None):
 
                     for j in range(masks_p.shape[0]):
                         if (boxes_p[j, 3] - boxes_p[j, 1]) * (boxes_p[j, 2] - boxes_p[j, 0]) > 0:
-                            make_json.add_bbox(dataset.ids[i], classes_p[j], boxes_p[j, :], confs_p[j])
-                            make_json.add_mask(dataset.ids[i], classes_p[j], masks_p[j, :, :], confs_p[j])
+                            make_json.add_bbox(dataset.ids[i], ids_p[j], boxes_p[j, :], class_p[j])
+                            make_json.add_mask(dataset.ids[i], ids_p[j], masks_p[j, :, :], class_p[j])
                 else:
-                    prep_metrics(ap_data, classes_p, confs_p, boxes_p, masks_p, gt, gt_masks, height, width, iou_thres)
+                    prep_metrics(ap_data, ids_p, class_p, boxes_p, masks_p, gt, gt_masks, img_h, img_w, iou_thres)
 
             aa = time.perf_counter()
             if i > 0:

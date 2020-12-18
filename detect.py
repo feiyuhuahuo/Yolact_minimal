@@ -8,7 +8,7 @@ import re
 import torch.utils.data as data
 import torch.backends.cudnn as cudnn
 
-from modules.build_yolact import Yolact
+from modules.yolact import Yolact
 from config import get_config
 from utils.coco import COCODetection, detect_collate
 from utils import timer
@@ -67,16 +67,17 @@ with torch.no_grad():
             img_h, img_w = img_origin.shape[0:2]
 
             with timer.counter('forward'):
-                net_outs = net(img)
+                class_p, box_p, coef_p, proto_p, anchors = net(img)
 
             with timer.counter('nms'):
-                nms_outs = nms(cfg, net_outs)
+                ids_p, class_p, box_p, coef_p, proto_p = nms(class_p, box_p, coef_p, proto_p, anchors, cfg)
 
             with timer.counter('after_nms'):
-                results = after_nms(nms_outs, img_h, img_w, cfg, img_name=img_name)
+                ids_p, class_p, boxes_p, masks_p = after_nms(ids_p, class_p, box_p, coef_p,
+                                                             proto_p, img_h, img_w, cfg, img_name=img_name)
 
             with timer.counter('save_img'):
-                img_numpy = draw_img(results, img_origin, cfg, img_name=img_name)
+                img_numpy = draw_img(ids_p, class_p, boxes_p, masks_p, img_origin, cfg, img_name=img_name)
                 cv2.imwrite(f'results/images/{img_name}', img_numpy)
 
             aa = time.perf_counter()

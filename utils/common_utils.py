@@ -170,7 +170,7 @@ class APDataObject:
         return sum(y_range) / len(y_range)
 
 
-def prep_metrics(ap_data, classes_p, confs_p, boxes_p, masks_p, gt, gt_masks, height, width, iou_thres):
+def prep_metrics(ap_data, ids_p, classes_p, boxes_p, masks_p, gt, gt_masks, height, width, iou_thres):
     gt_boxes = gt[:, :4]
     gt_boxes[:, [0, 2]] *= width
     gt_boxes[:, [1, 3]] *= height
@@ -181,7 +181,7 @@ def prep_metrics(ap_data, classes_p, confs_p, boxes_p, masks_p, gt, gt_masks, he
     mask_iou_cache = mask_iou(masks_p, gt_masks)
     bbox_iou_cache = bbox_iou(boxes_p.float(), gt_boxes.float())
 
-    for _class in set(classes_p + gt_classes):
+    for _class in set(ids_p + gt_classes):
         num_gt_per_class = gt_classes.count(_class)
 
         for iouIdx in range(len(iou_thres)):
@@ -192,7 +192,7 @@ def prep_metrics(ap_data, classes_p, confs_p, boxes_p, masks_p, gt, gt_masks, he
                 ap_obj = ap_data[iou_type][iouIdx][_class]
                 ap_obj.add_gt_positives(num_gt_per_class)
 
-                for i, pred_class in enumerate(classes_p):
+                for i, pred_class in enumerate(ids_p):
                     if pred_class != _class:
                         continue
 
@@ -210,9 +210,9 @@ def prep_metrics(ap_data, classes_p, confs_p, boxes_p, masks_p, gt, gt_masks, he
 
                     if max_match_idx >= 0:
                         gt_used[max_match_idx] = True
-                        ap_obj.push(confs_p[i], True)
+                        ap_obj.push(classes_p[i], True)
                     else:
-                        ap_obj.push(confs_p[i], False)
+                        ap_obj.push(classes_p[i], False)
 
 
 def calc_map(ap_data, iou_thres, num_classes, step):

@@ -12,8 +12,7 @@ import datetime
 import glob
 
 from utils import timer
-from modules.build_yolact import Yolact, NetWithLoss
-from modules.multi_loss import Multi_Loss
+from modules.yolact import Yolact
 from config import get_config
 from utils.coco import COCODetection, train_collate
 from utils.common_utils import save_best, save_latest
@@ -53,11 +52,10 @@ else:
 
 dataset = COCODetection(cfg, mode='train')
 optimizer = optim.SGD(net.parameters(), lr=cfg.lr, momentum=0.9, weight_decay=5e-4)
-criterion = Multi_Loss(cfg)
-net = NetWithLoss(net, criterion)
 
 train_sampler = None
 main_gpu = False
+num_gpu = 1  # If not cuda, num_gpu is 1.
 if cfg.cuda:
     cudnn.benchmark = True
     cudnn.fastest = True
@@ -74,7 +72,7 @@ data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=cfg.bs_per_gp
                               collate_fn=train_collate, pin_memory=False, sampler=train_sampler)
 # data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=0, shuffle=False,
 #                               collate_fn=train_collate, pin_memory=True)
-step_index = 0
+
 epoch_seed = 0
 map_tables = []
 training = True
@@ -98,10 +96,9 @@ try:  # try-except can shut down all processes after Ctrl + C.
                     param_group['lr'] = (cfg.lr - cfg.warmup_init) * (step / cfg.warmup_until) + cfg.warmup_init
 
             # Adjust the learning rate according to the current step.
-            while step_index < len(cfg.lr_steps) and step >= cfg.lr_steps[step_index]:
-                step_index += 1
+            if step in cfg.lr_steps[1:-1]:
                 for param_group in optimizer.param_groups:
-                    param_group['lr'] = cfg.lr * (0.1 ** step_index)
+                    param_group['lr'] *= 0.1
 
             if cfg.cuda:
                 images = images.cuda().detach()
@@ -115,7 +112,6 @@ try:  # try-except can shut down all processes after Ctrl + C.
                     # use .all_reduce() to get the summed loss from all GPUs
                     all_loss = torch.stack([loss_b, loss_m, loss_c, loss_s], dim=0)
                     dist.all_reduce(all_loss)
-                    all_loss_sum = all_loss.sum()
 
             with timer.counter('backward'):
                 loss_total = loss_b + loss_m + loss_c + loss_s
@@ -123,12 +119,7 @@ try:  # try-except can shut down all processes after Ctrl + C.
                 loss_total.backward()
 
             with timer.counter('update'):
-                finite_loss = torch.isfinite(all_loss_sum) if cfg.cuda else torch.isfinite(loss_total)
-
-                if finite_loss:
-                    optimizer.step()
-                else:
-                    print(f'Infinite loss, step: {step}')
+                optimizer.step()
 
             time_this = time.time()
             if step > start_step:
@@ -137,11 +128,11 @@ try:  # try-except can shut down all processes after Ctrl + C.
             time_last = time_this
 
             if step % 20 == 0 and step != start_step:
-                if finite_loss and ((not cfg.cuda) or main_gpu):
+                if (not cfg.cuda) or main_gpu:
                     cur_lr = optimizer.param_groups[0]['lr']
                     time_name = ['batch', 'data', 'for+loss', 'backward', 'update']
                     t_t, t_d, t_fl, t_b, t_u = timer.get_times(time_name)
-                    seconds = (cfg.max_iter - step) * t_t
+                    seconds = (cfg.lr_steps[-1] - step) * t_t
                     eta = str(datetime.timedelta(seconds=seconds)).split('.')[0]
 
                     # Get the mean loss across all GPUS for printing, seems need to call .item(), not sure
@@ -163,7 +154,7 @@ try:  # try-except can shut down all processes after Ctrl + C.
             if args.val_interval > 0 and step % args.val_interval == 0 and step != start_step:
                 if (not cfg.cuda) or main_gpu:
                     net.eval()
-                    table, box_row, mask_row = evaluate(net.module.net, cfg, step)
+                    table, box_row, mask_row = evaluate(net.module, cfg, step)
                     map_tables.append(table)
                     net.train()
                     timer.reset()  # training timer and val timer share the same Obj, so reset it to avoid conflict
@@ -171,18 +162,18 @@ try:  # try-except can shut down all processes after Ctrl + C.
                     writer.add_scalar('box_map', box_row[1], global_step=step)
                     writer.add_scalar('mask_map', mask_row[1], global_step=step)
 
-                    save_best(net.module.net if cfg.cuda else net, mask_row[1], cfg_name, step)
+                    save_best(net.module if cfg.cuda else net, mask_row[1], cfg_name, step)
 
             if ((not cfg.cuda) or main_gpu) and step != 1 and step % cfg.val_interval == 1:
                 timer.start()  # the first iteration after validation should not be included
 
             step += 1
-            if step > cfg.max_iter:
+            if step > cfg.lr_steps[-1]:
                 training = False
 
                 if (not cfg.cuda) or main_gpu:
                     print(f'Training completed.')
-                    save_latest(net.module.net if cfg.cuda else net, cfg_name, step)
+                    save_latest(net.module if cfg.cuda else net, cfg_name, step)
 
                     print('\nValidation results during training:\n')
                     for table in map_tables:
@@ -192,7 +183,7 @@ try:  # try-except can shut down all processes after Ctrl + C.
 
 except KeyboardInterrupt:
     if (not cfg.cuda) or main_gpu:
-        save_latest(net.module.net if cfg.cuda else net, cfg_name, step)
+        save_latest(net.module if cfg.cuda else net, cfg_name, step)
 
         print('\nValidation results during training:\n')
         for table in map_tables:
