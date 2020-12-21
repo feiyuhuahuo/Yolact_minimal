@@ -1,6 +1,6 @@
 import torch.nn.functional as F
 import cv2
-from utils.box_utils import crop, sanitize_coordinates, decode, jaccard
+from utils.box_utils import crop, decode, jaccard
 import torch
 import numpy as np
 from config import COLORS
@@ -58,9 +58,7 @@ def fast_nms(box_thre, coef_thre, class_thre, cfg, second_threshold=False):
 def traditional_nms(boxes, masks, scores, cfg):
     num_classes = scores.size(0)
 
-    idx_lst = []
-    cls_lst = []
-    scr_lst = []
+    idx_lst, cls_lst, scr_lst = [], [], []
 
     # Multiplying by max_size is necessary because of how cnms computes its area and intersections
     boxes = boxes * cfg.img_size
@@ -120,7 +118,7 @@ def nms(class_pred, box_pred, coef_pred, proto_out, anchors, cfg):
     coef_thre = coef_p[keep, :]
 
     if class_thre.size(1) == 0:
-        return None * 5
+        return None, None, None, None, None
     else:
         if not cfg.traditional_nms:
             box_thre, coef_thre, class_ids, class_thre = fast_nms(box_thre, coef_thre, class_thre, cfg)
@@ -132,14 +130,12 @@ def nms(class_pred, box_pred, coef_pred, proto_out, anchors, cfg):
 
 def after_nms(ids_p, class_p, box_p, coef_p, proto_p, img_h, img_w, cfg=None, img_name=None):
     if ids_p is None:
-        return None * 4
+        return None, None, None, None
 
     if cfg and cfg.visual_thre > 0:
         keep = class_p >= cfg.visual_thre
-        # import pdb
-        # pdb.set_trace()
         if not keep.any():
-            return None * 4
+            return None, None, None, None
 
         ids_p = ids_p[keep]
         class_p = class_p[keep]

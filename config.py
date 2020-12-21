@@ -95,7 +95,9 @@ class res101_coco:
             self.lr = 0.001 * self.bs_factor
             self.warmup_init = self.lr * 0.1
             self.warmup_until = int(500 / self.bs_factor)
-            self.lr_steps = tuple([int(aa / self.bs_factor) for aa in (0, 280000, 600000, 700000, 750000, 800000)])
+            # self.lr_steps = tuple([int(aa / self.bs_factor) for aa in (0, 280000, 560000, 620000, 680000)])
+            # self.lr_steps = tuple([int(aa / self.bs_factor) for aa in (0, 280000, 600000, 700000, 750000, 800000)])
+            self.lr_steps = tuple([int(aa / self.bs_factor) for aa in (0, 280000, 560000, 700000, 750000, 800000)])
 
             self.pos_iou_thre = 0.5
             self.neg_iou_thre = 0.4

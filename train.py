@@ -10,6 +10,7 @@ from tensorboardX import SummaryWriter
 import argparse
 import datetime
 import glob
+import re
 
 from utils import timer
 from modules.yolact import Yolact
@@ -32,16 +33,20 @@ parser.add_argument('--coco_api', action='store_true', help='Whether to use coco
 
 args = parser.parse_args()
 cfg = get_config(args, mode='train')
+cfg_name = cfg.__class__.__name__
 
 net = Yolact(cfg)
 net.train()
 
 if args.resume == 'latest':
-    weight = glob.glob('weights/latest*')[0]
-    net.load_weights(weight, cfg.cuda)
+    weight = glob.glob('weights/latest*')
+    weight = [aa for aa in weight if cfg_name in aa]
+    assert len(weight) == 1, 'Error, multiple latest weight found.'
+    net.load_weights(weight[0], cfg.cuda)
     start_step = int(weight.split('.pth')[0].split('_')[-1])
     print(f'\nResume training with \'{weight}\'.\n')
-elif args.resume and 'yolact' in args.resume:
+elif args.resume:
+    assert re.findall(r'res.+_[a-z]+', args.resume)[0] == cfg_name, 'Resume weight is not compatible with current cfg.'
     net.load_weights(cfg.weight, cfg.cuda)
     start_step = int(cfg.weight.split('.pth')[0].split('_')[-1])
     print(f'\nResume training with \'{args.resume}\'.\n')
@@ -78,8 +83,8 @@ map_tables = []
 training = True
 timer.reset()
 step = start_step
-cfg_name = cfg.__class__.__name__
-writer = SummaryWriter('tensorboard_log')
+val_step = start_step
+writer = SummaryWriter(f'tensorboard_log/{cfg_name}')
 
 try:  # try-except can shut down all processes after Ctrl + C.
     while training:
@@ -88,17 +93,13 @@ try:  # try-except can shut down all processes after Ctrl + C.
             train_sampler.set_epoch(epoch_seed)
 
         for images, targets, masks in data_loader:
-            if ((not cfg.cuda) or main_gpu) and step == start_step + 1:
-                timer.start()
-
-            if cfg.warmup_until > 0 and step <= cfg.warmup_until:  # Warm up learning rate.
+            if cfg.warmup_until > 0 and step <= cfg.warmup_until:  # warm up learning rate.
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = (cfg.lr - cfg.warmup_init) * (step / cfg.warmup_until) + cfg.warmup_init
 
-            # Adjust the learning rate according to the current step.
-            if step in cfg.lr_steps[1:-1]:
+            if step in cfg.lr_steps:  # learning rate decay.
                 for param_group in optimizer.param_groups:
-                    param_group['lr'] *= 0.1
+                    param_group['lr'] = cfg.lr * 0.1 ** cfg.lr_steps.index(step)
 
             if cfg.cuda:
                 images = images.cuda().detach()
@@ -153,6 +154,7 @@ try:  # try-except can shut down all processes after Ctrl + C.
 
             if args.val_interval > 0 and step % args.val_interval == 0 and step != start_step:
                 if (not cfg.cuda) or main_gpu:
+                    val_step = step
                     net.eval()
                     table, box_row, mask_row = evaluate(net.module, cfg, step)
                     map_tables.append(table)
@@ -164,20 +166,21 @@ try:  # try-except can shut down all processes after Ctrl + C.
 
                     save_best(net.module if cfg.cuda else net, mask_row[1], cfg_name, step)
 
-            if ((not cfg.cuda) or main_gpu) and step != 1 and step % cfg.val_interval == 1:
+            if ((not cfg.cuda) or main_gpu) and step == val_step + 1:
                 timer.start()  # the first iteration after validation should not be included
 
             step += 1
-            if step > cfg.lr_steps[-1]:
+            if step >= cfg.lr_steps[-1]:
                 training = False
 
                 if (not cfg.cuda) or main_gpu:
-                    print(f'Training completed.')
                     save_latest(net.module if cfg.cuda else net, cfg_name, step)
 
                     print('\nValidation results during training:\n')
                     for table in map_tables:
                         print(table, '\n')
+
+                    print(f'Training completed.')
 
                 break
 

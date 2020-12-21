@@ -26,7 +26,7 @@ Yolact trained weights.
 
 |Backbone   | box mAP  | mask mAP  | Google Drive                                                                                                         |Baidu Cloud          |
 |:---------:|:--------:|:---------:|:--------------------------------------------------------------------------------------------------------------------:|:----------------------------------------------------------------:|
-|Resnet50 (to be updated)  | 30.25    | 28.04     | [res50_coco_800000.pth](https://drive.google.com/file/d/1kMm0tBZh8NuXBLmXKzVhOKR98Hpd81ja/view?usp=sharing)  |[password: mksf](https://pan.baidu.com/s/1XDeDwg1Xw9GJCucJNqdNZw) |
+|Resnet50   | 31.5     | 29.3     | [res50_coco_800000.pth](https://drive.google.com/file/d/1kMm0tBZh8NuXBLmXKzVhOKR98Hpd81ja/view?usp=sharing)  |[password: mksf](https://pan.baidu.com/s/1XDeDwg1Xw9GJCucJNqdNZw) |
 |Resnet101  | 32.9     | 30.5     | [res101_coco_800000.pth](https://drive.google.com/file/d/1KyjhkLEw0D8zP8IiJTTOR0j6PGecKbqS/view?usp=sharing)      |[password: oubr](https://pan.baidu.com/s/1uX_v1RPISxgwQ2LdsbJrJQ) |
 
 ImageNet pre-trained weights.  
@@ -38,7 +38,7 @@ ImageNet pre-trained weights.
 
 ## Improvement log
 2020.11.2. Improved data augmentation, use rectangle anchors, training is stable, infinite loss no longer appears.  
-2020.11.2. DDP training, train batch size increased to 16. +0.4 box mAP, +0.7 mask mAP (resnet101).  
+2020.11.2. DDP training, train batch size increased to 16, +0.4 box mAP, +0.7 mask mAP (resnet101).  
 
 ## Train
 ```Shell
@@ -64,7 +64,7 @@ python train.py --train_bs=4
 ```
 ## Use tensorboard
 ```Shell
-tensorboard --logdir=tensorboard_log
+tensorboard --logdir=tensorboard_log/res101_coco
 ```
 
 ## Evalution
