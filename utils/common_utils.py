@@ -41,7 +41,7 @@ class ProgressBar:
 def save_best(net, mask_map, cfg_name, step):
     weight = glob.glob('weights/best*')
     weight = [aa for aa in weight if cfg_name in aa]
-    assert len(weight) == 1, 'Error, multiple best weight found.'
+    assert len(weight) <= 1, 'Error, multiple best weight found.'
     best_mask_map = float(weight[0].split('/')[-1].split('_')[1]) if weight else 0.
 
     if mask_map >= best_mask_map:
@@ -55,7 +55,7 @@ def save_best(net, mask_map, cfg_name, step):
 def save_latest(net, cfg_name, step):
     weight = glob.glob('weights/latest*')
     weight = [aa for aa in weight if cfg_name in aa]
-    assert len(weight) == 1, 'Error, multiple latest weight found.'
+    assert len(weight) <= 1, 'Error, multiple latest weight found.'
     if weight:
         os.remove(weight[0])
 

@@ -41,7 +41,7 @@ net.train()
 if args.resume == 'latest':
     weight = glob.glob('weights/latest*')
     weight = [aa for aa in weight if cfg_name in aa]
-    assert len(weight) == 1, 'Error, multiple latest weight found.'
+    assert len(weight) <= 1, 'Error, multiple latest weight found.'
     net.load_weights(weight[0], cfg.cuda)
     start_step = int(weight.split('.pth')[0].split('_')[-1])
     print(f'\nResume training with \'{weight}\'.\n')
