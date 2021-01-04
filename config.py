@@ -94,7 +94,7 @@ class res101_coco:
             self.bs_factor = self.train_bs / 8
             self.lr = 0.001 * self.bs_factor
             self.warmup_init = self.lr * 0.1
-            self.warmup_until = int(500 / self.bs_factor)
+            self.warmup_until = 500
             # self.lr_steps = tuple([int(aa / self.bs_factor) for aa in (0, 280000, 560000, 620000, 680000)])
             # self.lr_steps = tuple([int(aa / self.bs_factor) for aa in (0, 280000, 600000, 700000, 750000, 800000)])
             self.lr_steps = tuple([int(aa / self.bs_factor) for aa in (0, 280000, 560000, 700000, 750000, 800000)])
