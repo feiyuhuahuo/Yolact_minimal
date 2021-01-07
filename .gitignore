@@ -9,6 +9,6 @@ test~~.py
 *.mp4
 *.avi
 tensorboard_log/
-build_stuff/build
+build/
 *.c
 *.so

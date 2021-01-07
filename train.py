@@ -9,7 +9,6 @@ import torch.utils.data as data
 from tensorboardX import SummaryWriter
 import argparse
 import datetime
-import glob
 import re
 
 from utils import timer
@@ -38,14 +37,7 @@ cfg_name = cfg.__class__.__name__
 net = Yolact(cfg)
 net.train()
 
-if args.resume == 'latest':
-    weight = glob.glob('weights/latest*')
-    weight = [aa for aa in weight if cfg_name in aa]
-    assert len(weight) <= 1, 'Error, multiple latest weight found.'
-    net.load_weights(weight[0], cfg.cuda)
-    start_step = int(weight.split('.pth')[0].split('_')[-1])
-    print(f'\nResume training with \'{weight}\'.\n')
-elif args.resume:
+if args.resume:
     assert re.findall(r'res.+_[a-z]+', args.resume)[0] == cfg_name, 'Resume weight is not compatible with current cfg.'
     net.load_weights(cfg.weight, cfg.cuda)
     start_step = int(cfg.weight.split('.pth')[0].split('_')[-1])
@@ -60,7 +52,7 @@ optimizer = optim.SGD(net.parameters(), lr=cfg.lr, momentum=0.9, weight_decay=5e
 
 train_sampler = None
 main_gpu = False
-num_gpu = 1  # If not cuda, num_gpu is 1.
+num_gpu = 0
 if cfg.cuda:
     cudnn.benchmark = True
     cudnn.fastest = True
@@ -107,15 +99,15 @@ try:  # try-except can shut down all processes after Ctrl + C.
                 masks = [mask.cuda().detach() for mask in masks]
 
             with timer.counter('for+loss'):
-                loss_b, loss_m, loss_c, loss_s = net(images, targets, masks)
+                loss_c, loss_b, loss_m, loss_s = net(images, targets, masks)
 
                 if cfg.cuda:
                     # use .all_reduce() to get the summed loss from all GPUs
-                    all_loss = torch.stack([loss_b, loss_m, loss_c, loss_s], dim=0)
+                    all_loss = torch.stack([loss_c, loss_b, loss_m, loss_s], dim=0)
                     dist.all_reduce(all_loss)
 
             with timer.counter('backward'):
-                loss_total = loss_b + loss_m + loss_c + loss_s
+                loss_total = loss_c + loss_b + loss_m + loss_s
                 optimizer.zero_grad()
                 loss_total.backward()
 
@@ -128,7 +120,7 @@ try:  # try-except can shut down all processes after Ctrl + C.
                 timer.add_batch_time(batch_time)
             time_last = time_this
 
-            if step % 20 == 0 and step != start_step:
+            if step % 50 == 0 and step != start_step:
                 if (not cfg.cuda) or main_gpu:
                     cur_lr = optimizer.param_groups[0]['lr']
                     time_name = ['batch', 'data', 'for+loss', 'backward', 'update']
@@ -137,16 +129,16 @@ try:  # try-except can shut down all processes after Ctrl + C.
                     eta = str(datetime.timedelta(seconds=seconds)).split('.')[0]
 
                     # Get the mean loss across all GPUS for printing, seems need to call .item(), not sure
-                    l_b = all_loss[0].item() / num_gpu if main_gpu else loss_b.item()
-                    l_m = all_loss[1].item() / num_gpu if main_gpu else loss_m.item()
-                    l_c = all_loss[2].item() / num_gpu if main_gpu else loss_c.item()
+                    l_c = all_loss[0].item() / num_gpu if main_gpu else loss_c.item()
+                    l_b = all_loss[1].item() / num_gpu if main_gpu else loss_b.item()
+                    l_m = all_loss[2].item() / num_gpu if main_gpu else loss_m.item()
                     l_s = all_loss[3].item() / num_gpu if main_gpu else loss_s.item()
 
-                    writer.add_scalar(f'task/box', l_b, global_step=step)
-                    writer.add_scalar(f'task/mask', l_m, global_step=step)
-                    writer.add_scalar(f'task/class', l_c, global_step=step)
-                    writer.add_scalar(f'task/semantic', l_s, global_step=step)
-                    writer.add_scalar('total', loss_total, global_step=step)
+                    writer.add_scalar('loss/class', l_c, global_step=step)
+                    writer.add_scalar('loss/box', l_b, global_step=step)
+                    writer.add_scalar('loss/mask', l_m, global_step=step)
+                    writer.add_scalar('loss/semantic', l_s, global_step=step)
+                    writer.add_scalar('loss/total', loss_total, global_step=step)
 
                     print(f'step: {step} | lr: {cur_lr:.2e} | l_class: {l_c:.3f} | l_box: {l_b:.3f} | '
                           f'l_mask: {l_m:.3f} | l_semantic: {l_s:.3f} | t_t: {t_t:.3f} | t_d: {t_d:.3f} | '
@@ -161,8 +153,8 @@ try:  # try-except can shut down all processes after Ctrl + C.
                     net.train()
                     timer.reset()  # training timer and val timer share the same Obj, so reset it to avoid conflict
 
-                    writer.add_scalar('box_map', box_row[1], global_step=step)
-                    writer.add_scalar('mask_map', mask_row[1], global_step=step)
+                    writer.add_scalar('mAP/box_map', box_row[1], global_step=step)
+                    writer.add_scalar('mAP/mask_map', mask_row[1], global_step=step)
 
                     save_best(net.module if cfg.cuda else net, mask_row[1], cfg_name, step)
 

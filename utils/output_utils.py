@@ -5,16 +5,16 @@ import torch
 import numpy as np
 from config import COLORS
 from cython_nms import nms as cnms
+import pdb
 
 
 def fast_nms(box_thre, coef_thre, class_thre, cfg, second_threshold=False):
     class_thre, idx = class_thre.sort(1, descending=True)  # [80, 64 (the number of kept boxes)]
 
-    idx = idx[:, :cfg.top_k].contiguous()
+    idx = idx[:, :cfg.top_k]
     class_thre = class_thre[:, :cfg.top_k]
 
     num_classes, num_dets = idx.size()
-
     box_thre = box_thre[idx.reshape(-1), :].reshape(num_classes, num_dets, 4)  # [80, 64, 4]
     coef_thre = coef_thre[idx.reshape(-1), :].reshape(num_classes, num_dets, -1)  # [80, 64, 32]
 
@@ -104,7 +104,6 @@ def nms(class_pred, box_pred, coef_pred, proto_out, anchors, cfg):
     proto_p = proto_out.squeeze()  # [138, 138, 32]
 
     class_p = class_p.transpose(1, 0).contiguous()  # [81, 19248]
-    box_decode = decode(box_p, anchors)  # [19248, 4]
 
     # exclude the background class
     class_p = class_p[1:, :]
@@ -114,10 +113,10 @@ def nms(class_pred, box_pred, coef_pred, proto_out, anchors, cfg):
     # filter predicted boxes according the class score
     keep = (class_p_max > cfg.nms_score_thre)
     class_thre = class_p[:, keep]
-    box_thre = box_decode[keep, :]
+    box_thre = decode(box_p[keep, :], anchors[keep, :])
     coef_thre = coef_p[keep, :]
 
-    if class_thre.size(1) == 0:
+    if class_thre.shape[1] == 0:
         return None, None, None, None, None
     else:
         if not cfg.traditional_nms:

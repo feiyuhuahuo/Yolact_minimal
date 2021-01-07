@@ -37,6 +37,8 @@ ImageNet pre-trained weights.
 | Resnet101 | [resnet101_reducedfc.pth](https://drive.google.com/file/d/1vaDqYNB__jTB7_p9G6QTMvoMDlGkHzhP/view?usp=sharing)   | [password: kdht](https://pan.baidu.com/s/1ha4aH7xVg-0J0Ukcqcr6OQ) |
 
 ## Improvement log
+2021.1.7. Focal loss did not help, tried conf_alpha 4, 6, 7, 8.  
+2021.1.7. Less training iterations, 800k --> 680k with batch size 8. 
 2020.11.2. Improved data augmentation, use rectangle anchors, training is stable, infinite loss no longer appears.  
 2020.11.2. DDP training, train batch size increased to 16, +0.4 box mAP, +0.7 mask mAP (resnet101).  
 
@@ -53,10 +55,8 @@ python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) 
 python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --train_bs=4
 # Train with different image size (anchor settings related to image size will be adjusted automatically).
 python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --img_size=400
-# Resume training with the latest trained model.
-python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --resume latest
 # Resume training with a specified model.
-python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --resume latest_res101_coco_35000.pth
+python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --resume=weights/latest_res101_coco_35000.pth
 # Set evalution interval during training, set -1 to disable it.  
 python -m torch.distributed.launch --nproc_per_node=1 --master_port=$((RANDOM)) train.py --val_interval 8000
 # Train on CPU.

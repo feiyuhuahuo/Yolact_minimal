@@ -53,33 +53,33 @@ def jaccard(box_a, box_b):
     return out if use_batch else out.squeeze(0)
 
 
-def match(cfg, box_gt, priors, class_gt):
+def match(cfg, box_gt, anchors, class_gt):
     # Convert prior boxes to the form of [xmin, ymin, xmax, ymax].
-    decoded_priors = torch.cat((priors[:, :2] - priors[:, 2:] / 2, priors[:, :2] + priors[:, 2:] / 2), 1)
+    decoded_priors = torch.cat((anchors[:, :2] - anchors[:, 2:] / 2, anchors[:, :2] + anchors[:, 2:] / 2), 1)
 
-    overlaps = jaccard(box_gt, decoded_priors)  # size: [num_objects, num_priors]
+    overlaps = jaccard(box_gt, decoded_priors)  # (num_gts, num_achors)
 
-    each_box_max, each_box_index = overlaps.max(1)  # size [num_objects], the max IoU for each gt box
-    each_prior_max, each_prior_index = overlaps.max(0)  # size [num_priors], the max IoU for each prior
+    _, gt_max_i = overlaps.max(1)  # (num_gts, ) the max IoU for each gt box
+    each_anchor_max, anchor_max_i = overlaps.max(0)  # (num_achors, ) the max IoU for each anchor
 
-    # For the max IoU prior for each gt box, set its IoU to 2. This ensures that it won't be filtered
+    # For the max IoU anchor for each gt box, set its IoU to 2. This ensures that it won't be filtered
     # in the threshold step even if the IoU is under the negative threshold. This is because that we want
-    # at least one prior to match with each gt box or else we'd be wasting training readme_imgs.
-    each_prior_max.index_fill_(0, each_box_index, 2)
+    # at least one anchor to match with each gt box or else we'd be wasting training data.
+    each_anchor_max.index_fill_(0, gt_max_i, 2)
 
-    # Set the index of the pair (prior, gt) we set the overlap for above.
-    for j in range(each_box_index.size(0)):
-        each_prior_index[each_box_index[j]] = j
+    # Set the index of the pair (anchor, gt) we set the overlap for above.
+    for j in range(gt_max_i.size(0)):
+        anchor_max_i[gt_max_i[j]] = j
 
-    each_prior_box = box_gt[each_prior_index]  # size: [num_priors, 4]
+    anchor_max_gt = box_gt[anchor_max_i]  # (num_achors, 4)
 
-    conf = class_gt[each_prior_index] + 1  # the class of the max IoU gt box for each prior, size: [num_priors]
-    conf[each_prior_max < cfg.pos_iou_thre] = -1  # label as neutral
-    conf[each_prior_max < cfg.neg_iou_thre] = 0  # label as background
+    conf = class_gt[anchor_max_i] + 1  # the class of the max IoU gt box for each anchor
+    conf[each_anchor_max < cfg.pos_iou_thre] = -1  # label as neutral
+    conf[each_anchor_max < cfg.neg_iou_thre] = 0  # label as background
 
-    offsets = encode(each_prior_box, priors)
+    offsets = encode(anchor_max_gt, anchors)
 
-    return offsets, conf, each_prior_box, each_prior_index
+    return offsets, conf, anchor_max_gt, anchor_max_i
 
 
 def make_anchors(cfg, conv_h, conv_w, scale):

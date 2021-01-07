@@ -115,7 +115,7 @@ class COCODetection(data.Dataset):
                 if self.mode == 'val':
                     raise RuntimeError('Error, no valid object in this image.')
                 else:
-                    print(f'Warning, no valid object in image: {img_id}. Use a repeated image in this batch.')
+                    print(f'No valid object in image: {img_id}. Use a repeated image in this batch.')
                     return None, None, None
 
     def __len__(self):

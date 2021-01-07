@@ -54,6 +54,7 @@ with torch.no_grad():
         data_loader = data.DataLoader(dataset, 1, num_workers=4, shuffle=False,
                                       pin_memory=True, collate_fn=detect_collate)
         ds = len(data_loader)
+        assert ds > 0, 'No .jpg images found.'
         progress_bar = ProgressBar(40, ds)
         timer.reset()
 
