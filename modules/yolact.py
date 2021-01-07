@@ -1,5 +1,4 @@
 import torch
-import math
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -118,7 +117,6 @@ class FPN(nn.Module):
             j -= 1
 
             if j < len(backbone_outs) - 1:
-                pdb.set_trace()
                 _, _, h, w = backbone_outs[j].size()
                 x = F.interpolate(x, size=(h, w), mode='bilinear', align_corners=False)
 
