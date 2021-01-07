@@ -38,7 +38,7 @@ ImageNet pre-trained weights.
 
 ## Improvement log
 2021.1.7. Focal loss did not help, tried conf_alpha 4, 6, 7, 8.  
-2021.1.7. Less training iterations, 800k --> 680k with batch size 8. 
+2021.1.7. Less training iterations, 800k --> 680k with batch size 8.  
 2020.11.2. Improved data augmentation, use rectangle anchors, training is stable, infinite loss no longer appears.  
 2020.11.2. DDP training, train batch size increased to 16, +0.4 box mAP, +0.7 mask mAP (resnet101).  
 
