@@ -84,7 +84,6 @@ class PredictionModule(nn.Module):
         box = self.bbox_layer(x).permute(0, 2, 3, 1).reshape(x.size(0), -1, 4)
         coef = self.mask_layer(x).permute(0, 2, 3, 1).reshape(x.size(0), -1, self.coef_dim)
         coef = torch.tanh(coef)
-
         return conf, box, coef
 
 

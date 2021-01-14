@@ -30,6 +30,16 @@ parser.add_argument('--val_num', default=-1, type=int, help='The number of image
 parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
 parser.add_argument('--coco_api', action='store_true', help='Whether to use cocoapi to evaluate results.')
 
+# # for numpy randomness
+# import numpy as np
+# np.random.seed(10)
+# # for randomness in image augmentation
+# import random
+# random.seed(10)
+# # every PyTorch thing can be fixed with these two lines
+# torch.manual_seed(10)
+# torch.cuda.manual_seed_all(10)
+
 args = parser.parse_args()
 cfg = get_config(args, mode='train')
 cfg_name = cfg.__class__.__name__

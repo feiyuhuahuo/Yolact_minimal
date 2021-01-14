@@ -76,13 +76,13 @@ export CUDA_VISIBLE_DEVICES=0
 ```Shell
 # Evaluate on COCO val2017 (configuration will be parsed according to the model name).
 # The metric API in this project can not get the exact COCO mAP, but the evaluation speed is fast. 
-python eval.py --weight=weights/res101_coco_800000.pth
+python eval.py --weight=weights/best_30.5_res101_coco_392000.pth
 # To get the exact COCO mAP:
-python eval.py --weight=weights/res101_coco_800000.pth --coco_api
+python eval.py --weight=weights/best_30.5_res101_coco_392000.pth --coco_api
 # Evaluate with a specified number of images.
-python eval.py --weight=weights/res101_coco_800000.pth --val_num=1000
+python eval.py --weight=weights/best_30.5_res101_coco_392000.pth --val_num=1000
 # Evaluate with traditional nms.
-python eval.py --weight=weights/res101_coco_800000.pth --traditional_nms
+python eval.py --weight=weights/best_30.5_res101_coco_392000.pth --traditional_nms
 ```
 ## Detect
 - detect result  
@@ -95,25 +95,25 @@ export CUDA_VISIBLE_DEVICES=0
 
 ```Shell
 # To detect images, pass the path of the image folder, detected images will be saved in `results/images`.
-python detect.py --weight=weights/res101_coco_800000.pth --image=images
+python detect.py --weight=weights/best_30.5_res101_coco_392000.pth --image=images
 ```
 - cutout object  
 ![Example 3](readme_imgs/cutout.jpg)
 ```
 # Use --cutout to cut out detected objects.
-python detect.py --weight=weights/res101_coco_800000.pth --image=images --cutout
+python detect.py --weight=weights/best_30.5_res101_coco_392000.pth --image=images --cutout
 ```
 ```
 # To detect videos, pass the path of video, detected video will be saved in `results/videos`:
-python detect.py --weight=weights/res101_coco_800000.pth --video=videos/1.mp4
+python detect.py --weight=weights/best_30.5_res101_coco_392000.pth --video=videos/1.mp4
 # Use --real_time to detect real-timely.
-python detect.py --weight=weights/res101_coco_800000.pth --video=videos/1.mp4 --real_time
+python detect.py --weight=weights/best_30.5_res101_coco_392000.pth --video=videos/1.mp4 --real_time
 ```
 - linear combination result  
 ![Example 4](readme_imgs/lincomb.jpg)
 ```
 # Use --hide_mask, --hide_score, --save_lincomb, --no_crop and so on to get different results.
-python detect.py --weight=weights/res101_coco_800000.pth --image=images --save_lincomb
+python detect.py --weight=weights/best_30.5_res101_coco_392000.pth --image=images --save_lincomb
 ```
 
 ## Train on PASCAL_SBD datasets

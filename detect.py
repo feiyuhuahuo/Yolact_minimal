@@ -121,23 +121,24 @@ with torch.no_grad():
 
             frame_origin = vid.read()[1]
             img_h, img_w = frame_origin.shape[0:2]
-            frame_trans = val_aug(frame_origin, cfg)
+            frame_trans = val_aug(frame_origin, cfg.img_size)
 
             frame_tensor = torch.tensor(frame_trans).float()
             if cfg.cuda:
                 frame_tensor = frame_tensor.cuda()
 
             with timer.counter('forward'):
-                net_outs = net(frame_tensor.unsqueeze(0))
+                class_p, box_p, coef_p, proto_p, anchors = net(frame_tensor.unsqueeze(0))
 
             with timer.counter('nms'):
-                nms_outs = nms(cfg, net_outs)
+                ids_p, class_p, box_p, coef_p, proto_p = nms(class_p, box_p, coef_p, proto_p, anchors, cfg)
 
             with timer.counter('after_nms'):
-                results = after_nms(nms_outs, img_h, img_w, cfg)
+                ids_p, class_p, boxes_p, masks_p = after_nms(ids_p, class_p, box_p, coef_p,
+                                                             proto_p, img_h, img_w, cfg)
 
             with timer.counter('save_img'):
-                frame_numpy = draw_img(results, frame_origin, cfg, fps=t_fps)
+                frame_numpy = draw_img(ids_p, class_p, boxes_p, masks_p, frame_origin, cfg, fps=t_fps)
 
             if cfg.real_time:
                 cv2.imshow('Detection', frame_numpy)

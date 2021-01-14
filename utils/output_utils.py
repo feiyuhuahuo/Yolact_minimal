@@ -195,15 +195,15 @@ def draw_lincomb(proto_data, masks, img_name):
 
 
 def draw_img(ids_p, class_p, box_p, mask_p, img_origin, cfg, img_name=None, fps=None):
+    if ids_p is None:
+        return img_origin
+
     ids_p = ids_p.cpu().numpy()
     class_p = class_p.cpu().numpy()
     box_p = box_p.cpu().numpy()
     mask_p = mask_p.cpu().numpy()
 
     num_detected = ids_p.shape[0]
-
-    if num_detected == 0:
-        return img_origin
 
     img_fused = img_origin
     if not cfg.hide_mask:
