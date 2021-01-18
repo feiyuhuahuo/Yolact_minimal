@@ -26,8 +26,8 @@ Yolact trained weights.
 
 |Backbone   | box mAP  | mask mAP | Google Drive                                                                                                   |Baidu Cloud                                                       |
 |:---------:|:--------:|:--------:|:--------------------------------------------------------------------------------------------------------------:|:----------------------------------------------------------------:|
-|Resnet50   | 31.5     | 29.3     | [res50_coco_800000.pth](https://drive.google.com/file/d/1pe8T2GhS7Vg9ahX3PmSgLD73rwr8NdQm/view?usp=sharing)    |[password: 2v8s](https://pan.baidu.com/s/1dMy_qRfY1I-SIyPwwk2vMQ) |
-|Resnet101  | 32.9     | 30.5     | [res101_coco_800000.pth](https://drive.google.com/file/d/17mPdwqSZGMKuj5P9iVd2Il56J2UUzpzL/view?usp=sharing)   |[password: 0jq2](https://pan.baidu.com/s/1L7jSW_yoYWS8RPhbunj7hQ) |
+|Resnet50   | 31.5     | 29.3     | [best_29.3_res50_coco_400001.pth](https://drive.google.com/file/d/1pe8T2GhS7Vg9ahX3PmSgLD73rwr8NdQm/view?usp=sharing)    |[password: 2v8s](https://pan.baidu.com/s/1dMy_qRfY1I-SIyPwwk2vMQ) |
+|Resnet101  | 32.9     | 30.5     | [best_30.5_res101_coco_392000.pth](https://drive.google.com/file/d/17mPdwqSZGMKuj5P9iVd2Il56J2UUzpzL/view?usp=sharing)   |[password: 0jq2](https://pan.baidu.com/s/1L7jSW_yoYWS8RPhbunj7hQ) |
 
 ImageNet pre-trained weights.  
 

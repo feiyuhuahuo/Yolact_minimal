@@ -77,7 +77,7 @@ class res101_coco:
         self.continuous_id = COCO_LABEL_MAP
         self.scales = [int(self.img_size / 550 * aa) for aa in (24, 48, 96, 192, 384)]
         self.aspect_ratios = [1, 1 / 2, 2]
-        self.use_square_anchors = False  # If False, loss is not stable.
+
         if self.mode == 'train':
             self.weight = args.resume if args.resume else 'weights/resnet101_reducedfc.pth'
         else:

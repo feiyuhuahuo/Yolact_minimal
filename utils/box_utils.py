@@ -95,10 +95,6 @@ def make_anchors(cfg, conv_h, conv_w, scale):
             w = scale * ar / cfg.img_size
             h = scale / ar / cfg.img_size
 
-            # This is for backward compatability with a bug where I made everything square by accident
-            if cfg.use_square_anchors:  # True
-                h = w
-
             prior_data += [x, y, w, h]
 
     return prior_data
