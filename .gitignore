@@ -12,3 +12,5 @@ tensorboard_log/
 build/
 *.c
 *.so
+onnx_files
+weights

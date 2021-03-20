@@ -6,6 +6,7 @@ import torch.distributed as dist
 os.makedirs('results/images', exist_ok=True)
 os.makedirs('results/videos', exist_ok=True)
 os.makedirs('weights/', exist_ok=True)
+os.makedirs('onnx_files/', exist_ok=True)
 os.makedirs('tensorboard_log/', exist_ok=True)
 
 COLORS = np.array([[0, 0, 0], [244, 67, 54], [233, 30, 99], [156, 39, 176], [103, 58, 183], [100, 30, 60],

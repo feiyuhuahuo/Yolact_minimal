@@ -11,6 +11,8 @@ This implementation has not been updated to Yolact++.
 ## Environments  
 PyTorch >= 1.1  
 Python >= 3.6  
+onnx  
+onnxruntime-gpu ==1.6.0 for CUDA 10.2  
 tensooardX  
 Other common packages.  
 
@@ -114,6 +116,12 @@ python detect.py --weight=weights/best_30.5_res101_coco_392000.pth --video=video
 ```
 # Use --hide_mask, --hide_score, --save_lincomb, --no_crop and so on to get different results.
 python detect.py --weight=weights/best_30.5_res101_coco_392000.pth --image=images --save_lincomb
+```
+## Transport to ONNX.  
+```
+python export2onnx.py --weight='weights/best_30.5_res101_coco_392000.pth' --opset=12
+# Detect with ONNX file, all the options are the same as those in `detect.py`.
+python detect_with_onnx.py --weight='onnx_files/res101_coco.onnx' --image=images.
 ```
 
 ## Train on PASCAL_SBD datasets

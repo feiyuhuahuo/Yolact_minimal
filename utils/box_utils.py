@@ -2,32 +2,10 @@
 import torch
 from itertools import product
 from math import sqrt
+import numpy as np
 
 
-def intersect(box_a, box_b):
-    """
-    We resize both tensors to [A,B,2] without new malloc:
-    [A,2] -> [A,1,2] -> [A,B,2]
-    [B,2] -> [1,B,2] -> [A,B,2]
-    Then we compute the area of intersect between box_a and box_b.
-    Args:
-      box_a: (tensor) bounding boxes, Shape: [n, A, 4].
-      box_b: (tensor) bounding boxes, Shape: [n, B, 4].
-    Return:
-      (tensor) intersection area, Shape: [n,A,B].
-    """
-    n = box_a.size(0)
-    A = box_a.size(1)
-    B = box_b.size(1)
-
-    max_xy = torch.min(box_a[:, :, 2:].unsqueeze(2).expand(n, A, B, 2), box_b[:, :, 2:].unsqueeze(1).expand(n, A, B, 2))
-    min_xy = torch.max(box_a[:, :, :2].unsqueeze(2).expand(n, A, B, 2), box_b[:, :, :2].unsqueeze(1).expand(n, A, B, 2))
-    inter = torch.clamp((max_xy - min_xy), min=0)
-
-    return inter[:, :, :, 0] * inter[:, :, :, 1]
-
-
-def jaccard(box_a, box_b):
+def box_iou(box_a, box_b):
     """
     Compute the IoU of two sets of boxes.
     Args:
@@ -42,22 +20,45 @@ def jaccard(box_a, box_b):
         box_a = box_a[None, ...]
         box_b = box_b[None, ...]
 
-    inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, :, 2] - box_a[:, :, 0]) * (box_a[:, :, 3] - box_a[:, :, 1])).unsqueeze(2).expand_as(
-        inter)  # [A,B]
-    area_b = ((box_b[:, :, 2] - box_b[:, :, 0]) * (box_b[:, :, 3] - box_b[:, :, 1])).unsqueeze(1).expand_as(
-        inter)  # [A,B]
-    union = area_a + area_b - inter
+    (n, A), B = box_a.shape[:2], box_b.shape[1]
+    # add a dimension
+    box_a = box_a[:, :, None, :].expand(n, A, B, 4)
+    box_b = box_b[:, None, :, :].expand(n, A, B, 4)
 
-    out = inter / union
+    max_xy = torch.min(box_a[..., 2:], box_b[..., 2:])
+    min_xy = torch.max(box_a[..., :2], box_b[..., :2])
+    inter = torch.clamp((max_xy - min_xy), min=0)
+    inter_area = inter[..., 0] * inter[..., 1]
+
+    area_a = (box_a[..., 2] - box_a[..., 0]) * (box_a[..., 3] - box_a[..., 1])
+    area_b = (box_b[..., 2] - box_b[..., 0]) * (box_b[..., 3] - box_b[..., 1])
+
+    out = inter_area / (area_a + area_b - inter_area)
     return out if use_batch else out.squeeze(0)
+
+
+def box_iou_numpy(box_a, box_b):
+    (n, A), B = box_a.shape[:2], box_b.shape[1]
+    # add a dimension
+    box_a = np.tile(box_a[:, :, None, :], (1, 1, B, 1))
+    box_b = np.tile(box_b[:, None, :, :], (1, A, 1, 1))
+
+    max_xy = np.minimum(box_a[..., 2:], box_b[..., 2:])
+    min_xy = np.maximum(box_a[..., :2], box_b[..., :2])
+    inter = np.clip((max_xy - min_xy), a_min=0, a_max=100000)
+    inter_area = inter[..., 0] * inter[..., 1]
+
+    area_a = (box_a[..., 2] - box_a[..., 0]) * (box_a[..., 3] - box_a[..., 1])
+    area_b = (box_b[..., 2] - box_b[..., 0]) * (box_b[..., 3] - box_b[..., 1])
+
+    return inter_area / (area_a + area_b - inter_area)
 
 
 def match(cfg, box_gt, anchors, class_gt):
     # Convert prior boxes to the form of [xmin, ymin, xmax, ymax].
     decoded_priors = torch.cat((anchors[:, :2] - anchors[:, 2:] / 2, anchors[:, :2] + anchors[:, 2:] / 2), 1)
 
-    overlaps = jaccard(box_gt, decoded_priors)  # (num_gts, num_achors)
+    overlaps = box_iou(box_gt, decoded_priors)  # (num_gts, num_achors)
 
     _, gt_max_i = overlaps.max(1)  # (num_gts, ) the max IoU for each gt box
     each_anchor_max, anchor_max_i = overlaps.max(0)  # (num_achors, ) the max IoU for each anchor
@@ -113,36 +114,6 @@ def encode(matched, priors):
     return offsets
 
 
-def decode(box_p, priors):
-    """
-    Decode predicted bbox coordinates using the same scheme
-    employed by Yolov2: https://arxiv.org/pdf/1612.08242.pdf
-
-        b_x = (sigmoid(pred_x) - .5) / conv_w + prior_x
-        b_y = (sigmoid(pred_y) - .5) / conv_h + prior_y
-        b_w = prior_w * exp(loc_w)
-        b_h = prior_h * exp(loc_h)
-    
-    Note that loc is inputed as [(s(x)-.5)/conv_w, (s(y)-.5)/conv_h, w, h]
-    while priors are inputed as [x, y, w, h] where each coordinate
-    is relative to size of the image (even sigmoid(x)). We do this
-    in the network by dividing by the 'cell size', which is just
-    the size of the convouts.
-    
-    Also note that prior_x and prior_y are center coordinates which
-    is why we have to subtract .5 from sigmoid(pred_x and pred_y).
-    """
-    variances = [0.1, 0.2]
-
-    boxes = torch.cat((priors[:, :2] + box_p[:, :2] * variances[0] * priors[:, 2:],
-                       priors[:, 2:] * torch.exp(box_p[:, 2:] * variances[1])), 1)
-
-    boxes[:, :2] -= boxes[:, 2:] / 2
-    boxes[:, 2:] += boxes[:, :2]
-
-    return boxes
-
-
 def sanitize_coordinates(_x1, _x2, img_size, padding=0):
     """
     Sanitizes the input coordinates so that x1 < x2, x1 != x2, x1 >= 0, and x2 <= image_size.
@@ -157,6 +128,18 @@ def sanitize_coordinates(_x1, _x2, img_size, padding=0):
     x2 = torch.max(_x1, _x2)
     x1 = torch.clamp(x1 - padding, min=0)
     x2 = torch.clamp(x2 + padding, max=img_size)
+
+    return x1, x2
+
+
+def sanitize_coordinates_numpy(_x1, _x2, img_size, padding=0):
+    _x1 = _x1 * img_size
+    _x2 = _x2 * img_size
+
+    x1 = np.minimum(_x1, _x2)
+    x2 = np.maximum(_x1, _x2)
+    x1 = np.clip(x1 - padding, a_min=0, a_max=1000000)
+    x2 = np.clip(x2 + padding, a_min=0, a_max=img_size)
 
     return x1, x2
 
@@ -185,6 +168,24 @@ def crop(masks, boxes, padding=1):
     return masks * crop_mask.float()
 
 
+def crop_numpy(masks, boxes, padding=1):
+    h, w, n = masks.shape
+    x1, x2 = sanitize_coordinates_numpy(boxes[:, 0], boxes[:, 2], w, padding)
+    y1, y2 = sanitize_coordinates_numpy(boxes[:, 1], boxes[:, 3], h, padding)
+
+    rows = np.tile(np.arange(w)[None, :, None], (h, 1, n))
+    cols = np.tile(np.arange(h)[:, None, None], (1, w, n))
+
+    masks_left = rows >= (x1.reshape(1, 1, -1))
+    masks_right = rows < (x2.reshape(1, 1, -1))
+    masks_up = cols >= (y1.reshape(1, 1, -1))
+    masks_down = cols < (y2.reshape(1, 1, -1))
+
+    crop_mask = masks_left * masks_right * masks_up * masks_down
+
+    return masks * crop_mask
+
+
 def mask_iou(mask1, mask2):
     """
     Inputs inputs are matricies of size _ x N. Output is size _1 x _2.
@@ -196,9 +197,4 @@ def mask_iou(mask1, mask2):
     union = (area1.t() + area2) - intersection
     ret = intersection / union
 
-    return ret.cpu()
-
-
-def bbox_iou(bbox1, bbox2):
-    ret = jaccard(bbox1, bbox2)
     return ret.cpu()

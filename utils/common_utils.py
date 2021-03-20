@@ -9,7 +9,7 @@ import json
 from terminaltables import AsciiTable
 from collections import OrderedDict
 
-from utils.box_utils import bbox_iou, mask_iou
+from utils.box_utils import box_iou, mask_iou
 from config import COCO_LABEL_MAP
 
 
@@ -183,7 +183,7 @@ def prep_metrics(ap_data, ids_p, classes_p, boxes_p, masks_p, gt, gt_masks, heig
     masks_p = masks_p.reshape(-1, height * width)
 
     mask_iou_cache = mask_iou(masks_p, gt_masks)
-    bbox_iou_cache = bbox_iou(boxes_p.float(), gt_boxes.float())
+    bbox_iou_cache = box_iou(boxes_p.float(), gt_boxes.float()).cpu()
 
     for _class in set(ids_p + gt_classes):
         num_gt_per_class = gt_classes.count(_class)

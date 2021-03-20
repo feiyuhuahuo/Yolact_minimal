@@ -1,6 +1,6 @@
 import torch.nn.functional as F
 import cv2
-from utils.box_utils import crop, decode, jaccard
+from utils.box_utils import crop, box_iou, box_iou_numpy, crop_numpy
 import torch
 import numpy as np
 from config import COLORS
@@ -8,7 +8,7 @@ from cython_nms import nms as cnms
 import pdb
 
 
-def fast_nms(box_thre, coef_thre, class_thre, cfg, second_threshold=False):
+def fast_nms(box_thre, coef_thre, class_thre, cfg):
     class_thre, idx = class_thre.sort(1, descending=True)  # [80, 64 (the number of kept boxes)]
 
     idx = idx[:, :cfg.top_k]
@@ -18,32 +18,58 @@ def fast_nms(box_thre, coef_thre, class_thre, cfg, second_threshold=False):
     box_thre = box_thre[idx.reshape(-1), :].reshape(num_classes, num_dets, 4)  # [80, 64, 4]
     coef_thre = coef_thre[idx.reshape(-1), :].reshape(num_classes, num_dets, -1)  # [80, 64, 32]
 
-    iou = jaccard(box_thre, box_thre)
+    iou = box_iou(box_thre, box_thre)
     iou.triu_(diagonal=1)
     iou_max, _ = iou.max(dim=1)
 
     # Now just filter out the ones higher than the threshold
     keep = (iou_max <= cfg.nms_iou_thre)
 
-    # We should also only keep detections over the confidence threshold, but at the cost of
-    # maxing out your detection count for every image, you can just not do that. Because we
-    # have such a minimal amount of computation per detection (matrix mulitplication only),
-    # this increase doesn't affect us much (+0.2 mAP for 34 -> 33 fps), so we leave it out.
-    # However, when you implement this in your method, you should do this second threshold.
-    if second_threshold:
-        keep *= (class_thre > cfg.nms_score_thresh)
-
     # Assign each kept detection to its corresponding class
     class_ids = torch.arange(num_classes, device=box_thre.device)[:, None].expand_as(keep)
 
-    class_ids = class_ids[keep]
-
-    box_nms = box_thre[keep]
-    coef_nms = coef_thre[keep]
-    class_nms = class_thre[keep]
+    class_ids, box_nms, coef_nms, class_nms = class_ids[keep], box_thre[keep], coef_thre[keep], class_thre[keep]
 
     # Only keep the top cfg.max_num_detections highest scores across all classes
     class_nms, idx = class_nms.sort(0, descending=True)
+
+    idx = idx[:cfg.max_detections]
+    class_nms = class_nms[:cfg.max_detections]
+
+    class_ids = class_ids[idx]
+    box_nms = box_nms[idx]
+    coef_nms = coef_nms[idx]
+
+    return box_nms, coef_nms, class_ids, class_nms
+
+
+def fast_nms_numpy(box_thre, coef_thre, class_thre, cfg):
+    # descending sort
+    idx = np.argsort(-class_thre, axis=1)
+    class_thre = np.sort(class_thre, axis=1)[:, ::-1]
+
+    idx = idx[:, :cfg.top_k]
+    class_thre = class_thre[:, :cfg.top_k]
+
+    num_classes, num_dets = idx.shape
+    box_thre = box_thre[idx.reshape(-1), :].reshape(num_classes, num_dets, 4)  # [80, 64, 4]
+    coef_thre = coef_thre[idx.reshape(-1), :].reshape(num_classes, num_dets, -1)  # [80, 64, 32]
+
+    iou = box_iou_numpy(box_thre, box_thre)
+    iou = np.triu(iou, k=1)
+    iou_max = np.max(iou, axis=1)
+
+    # Now just filter out the ones higher than the threshold
+    keep = (iou_max <= cfg.nms_iou_thre)
+
+    # Assign each kept detection to its corresponding class
+    class_ids = np.tile(np.arange(num_classes)[:, None], (1, keep.shape[1]))
+
+    class_ids, box_nms, coef_nms, class_nms = class_ids[keep], box_thre[keep], coef_thre[keep], class_thre[keep]
+
+    # Only keep the top cfg.max_num_detections highest scores across all classes
+    idx = np.argsort(-class_nms, axis=0)
+    class_nms = np.sort(class_nms, axis=0)[::-1]
 
     idx = idx[:cfg.max_detections]
     class_nms = class_nms[:cfg.max_detections]
@@ -113,8 +139,13 @@ def nms(class_pred, box_pred, coef_pred, proto_out, anchors, cfg):
     # filter predicted boxes according the class score
     keep = (class_p_max > cfg.nms_score_thre)
     class_thre = class_p[:, keep]
-    box_thre = decode(box_p[keep, :], anchors[keep, :])
-    coef_thre = coef_p[keep, :]
+    box_thre, anchor_thre, coef_thre = box_p[keep, :], anchors[keep, :], coef_p[keep, :]
+
+    # decode boxes
+    box_thre = torch.cat((anchor_thre[:, :2] + box_thre[:, :2] * 0.1 * anchor_thre[:, 2:],
+                          anchor_thre[:, 2:] * torch.exp(box_thre[:, 2:] * 0.2)), 1)
+    box_thre[:, :2] -= box_thre[:, 2:] / 2
+    box_thre[:, 2:] += box_thre[:, :2]
 
     if class_thre.shape[1] == 0:
         return None, None, None, None, None
@@ -124,6 +155,39 @@ def nms(class_pred, box_pred, coef_pred, proto_out, anchors, cfg):
         else:
             box_thre, coef_thre, class_ids, class_thre = traditional_nms(box_thre, coef_thre, class_thre, cfg)
 
+        return class_ids, class_thre, box_thre, coef_thre, proto_p
+
+
+def nms_numpy(class_pred, box_pred, coef_pred, proto_out, anchors, cfg):
+    class_p = class_pred.squeeze()  # [19248, 81]
+    box_p = box_pred.squeeze()  # [19248, 4]
+    coef_p = coef_pred.squeeze()  # [19248, 32]
+    proto_p = proto_out.squeeze()  # [138, 138, 32]
+
+    class_p = class_p.transpose(1, 0)
+    # exclude the background class
+    class_p = class_p[1:, :]
+    # get the max score class of 19248 predicted boxes
+
+    class_p_max = np.max(class_p, axis=0)  # [19248]
+
+    # filter predicted boxes according the class score
+    keep = (class_p_max > cfg.nms_score_thre)
+    class_thre = class_p[:, keep]
+
+    box_thre, anchor_thre, coef_thre = box_p[keep, :], anchors[keep, :], coef_p[keep, :]
+
+    # decode boxes
+    box_thre = np.concatenate((anchor_thre[:, :2] + box_thre[:, :2] * 0.1 * anchor_thre[:, 2:],
+                               anchor_thre[:, 2:] * np.exp(box_thre[:, 2:] * 0.2)), axis=1)
+    box_thre[:, :2] -= box_thre[:, 2:] / 2
+    box_thre[:, 2:] += box_thre[:, :2]
+
+    if class_thre.shape[1] == 0:
+        return None, None, None, None, None
+    else:
+        assert not cfg.traditional_nms, 'Traditional nms is not supported with numpy.'
+        box_thre, coef_thre, class_ids, class_thre = fast_nms_numpy(box_thre, coef_thre, class_thre, cfg)
         return class_ids, class_thre, box_thre, coef_thre, proto_p
 
 
@@ -152,12 +216,53 @@ def after_nms(ids_p, class_p, box_p, coef_p, proto_p, img_h, img_w, cfg=None, im
     masks = masks.permute(2, 0, 1).contiguous()
 
     ori_size = max(img_h, img_w)
+    # in OpenCV, cv2.resize is `align_corners=False`.
     masks = F.interpolate(masks.unsqueeze(0), (ori_size, ori_size), mode='bilinear', align_corners=False).squeeze(0)
     masks.gt_(0.5)  # Binarize the masks because of interpolation.
     masks = masks[:, 0: img_h, :] if img_h < img_w else masks[:, :, 0: img_w]
 
     box_p *= ori_size
-    box_p = box_p.long()
+    box_p = box_p.int()
+
+    return ids_p, class_p, box_p, masks
+
+
+def after_nms_numpy(ids_p, class_p, box_p, coef_p, proto_p, img_h, img_w, cfg=None):
+    def np_sigmoid(x):
+        return 1 / (1 + np.exp(-x))
+
+    if ids_p is None:
+        return None, None, None, None
+
+    if cfg and cfg.visual_thre > 0:
+        keep = class_p >= cfg.visual_thre
+        if not keep.any():
+            return None, None, None, None
+
+        ids_p = ids_p[keep]
+        class_p = class_p[keep]
+        box_p = box_p[keep]
+        coef_p = coef_p[keep]
+
+    assert not cfg.save_lincomb, 'save_lincomb is not supported in onnx mode.'
+
+    masks = np_sigmoid(np.matmul(proto_p, coef_p.T))
+
+    if not cfg or not cfg.no_crop:  # Crop masks by box_p
+        masks = crop_numpy(masks, box_p)
+
+    ori_size = max(img_h, img_w)
+    masks = cv2.resize(masks, (ori_size, ori_size), interpolation=cv2.INTER_LINEAR)
+
+    if masks.ndim == 2:
+        masks = masks[:, :, None]
+
+    masks = np.transpose(masks, (2, 0, 1))
+    masks = masks > 0.5  # Binarize the masks because of interpolation.
+    masks = masks[:, 0: img_h, :] if img_h < img_w else masks[:, :, 0: img_w]
+
+    box_p *= ori_size
+    box_p = box_p.astype('int32')
 
     return ids_p, class_p, box_p, masks
 
@@ -198,10 +303,11 @@ def draw_img(ids_p, class_p, box_p, mask_p, img_origin, cfg, img_name=None, fps=
     if ids_p is None:
         return img_origin
 
-    ids_p = ids_p.cpu().numpy()
-    class_p = class_p.cpu().numpy()
-    box_p = box_p.cpu().numpy()
-    mask_p = mask_p.cpu().numpy()
+    if isinstance(ids_p, torch.Tensor):
+        ids_p = ids_p.cpu().numpy()
+        class_p = class_p.cpu().numpy()
+        box_p = box_p.cpu().numpy()
+        mask_p = mask_p.cpu().numpy()
 
     num_detected = ids_p.shape[0]
 

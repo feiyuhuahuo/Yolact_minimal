@@ -38,6 +38,10 @@ def detect_collate(batch):
     return imgs, batch[0][1], batch[0][2]
 
 
+def detect_onnx_collate(batch):
+    return batch[0][0][None, :], batch[0][1], batch[0][2]
+
+
 class COCODetection(data.Dataset):
     def __init__(self, cfg, mode='train'):
         self.mode = mode

@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -142,7 +143,6 @@ class Yolact(nn.Module):
         self.backbone = construct_backbone(cfg.__class__.__name__, (1, 2, 3))
         self.proto_net, coef_dim = make_net(256, mask_proto_net, include_last_relu=False)
         self.fpn = FPN([512, 1024, 2048])
-        # create a ModuleList to match with the original pre-trained weights (original model state_dict)
         self.prediction_layers = nn.ModuleList()
         self.prediction_layers.append(PredictionModule(cfg, coef_dim=coef_dim))
 
@@ -182,7 +182,6 @@ class Yolact(nn.Module):
     def forward(self, img, box_classes=None, masks_gt=None):
         outs = self.backbone(img)
         outs = self.fpn(outs[1:4])
-
         if isinstance(self.anchors, list):
             for i, shape in enumerate([list(aa.shape) for aa in outs]):
                 self.anchors += make_anchors(self.cfg, shape[2], shape[3], self.cfg.scales[i])
