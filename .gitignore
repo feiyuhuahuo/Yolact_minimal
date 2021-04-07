@@ -13,4 +13,5 @@ build/
 *.c
 *.so
 onnx_files
+trt_files
 weights

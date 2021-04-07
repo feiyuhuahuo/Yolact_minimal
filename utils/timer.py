@@ -49,11 +49,12 @@ def get_times(time_name):
 
 
 class counter:
-    def __init__(self, name):
+    def __init__(self, name, trt_mode=False):
         self.name = name
         self.times = times
         self.mark = mark
         self.max_len = max_len
+        self.trt_mode = trt_mode
 
         for v in times.values():
             if len(v) >= self.max_len:  # pop the first item if the list is full
@@ -61,7 +62,7 @@ class counter:
 
     def __enter__(self):
         if self.mark:
-            if cuda:
+            if cuda and (not self.trt_mode):  # cuda operation in torch should be forbidden when run by TensorRT
                 torch.cuda.synchronize()
 
             self.times.setdefault(self.name, [])
@@ -69,7 +70,7 @@ class counter:
 
     def __exit__(self, e, ev, t):
         if self.mark:
-            if cuda:
+            if cuda and (not self.trt_mode):
                 torch.cuda.synchronize()
 
             self.times[self.name][-1] = time.perf_counter() - self.times[self.name][-1]

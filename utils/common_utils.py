@@ -115,15 +115,12 @@ class APDataObject:
         self.data_points.append((score, is_true))
 
     def add_gt_positives(self, num_positives: int):
-        """ Call this once per image. """
         self.num_gt_positives += num_positives
 
     def is_empty(self) -> bool:
         return len(self.data_points) == 0 and self.num_gt_positives == 0
 
     def get_ap(self) -> float:
-        """ Warning: result not cached. """
-
         if self.num_gt_positives == 0:
             return 0
 

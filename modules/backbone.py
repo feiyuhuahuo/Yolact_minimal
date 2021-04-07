@@ -102,15 +102,14 @@ class ResNetBackbone(nn.Module):
         """ Initializes the backbone weights for training. """
         state_dict = torch.load(path)
 
-        # Replace layer1 -> layers.0 etc.
-        keys = list(state_dict)
-        for key in keys:
-            if key.startswith('layer'):
-                idx = int(key[5])
-                new_key = 'layers.' + str(idx - 1) + key[6:]
-                state_dict[new_key] = state_dict.pop(key)
+        # # Replace layer1 -> layers.0 etc.
+        # keys = list(state_dict)
+        # for key in keys:
+        #     if key.startswith('layer'):
+        #         idx = int(key[5])
+        #         new_key = 'layers.' + str(idx - 1) + key[6:]
+        #         state_dict[new_key] = state_dict.pop(key)
 
-        # Note: Using strict=False is berry scary. Triple check this.
         self.load_state_dict(state_dict, strict=False)
 
     def add_layer(self, conv_channels=1024, downsample=2, depth=1, block=Bottleneck):

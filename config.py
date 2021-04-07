@@ -5,8 +5,13 @@ import torch.distributed as dist
 
 os.makedirs('results/images', exist_ok=True)
 os.makedirs('results/videos', exist_ok=True)
+os.makedirs('results/onnx_images', exist_ok=True)
+os.makedirs('results/onnx_videos', exist_ok=True)
+os.makedirs('results/trt_images', exist_ok=True)
+os.makedirs('results/trt_videos', exist_ok=True)
 os.makedirs('weights/', exist_ok=True)
 os.makedirs('onnx_files/', exist_ok=True)
+os.makedirs('trt_files/', exist_ok=True)
 os.makedirs('tensorboard_log/', exist_ok=True)
 
 COLORS = np.array([[0, 0, 0], [244, 67, 54], [233, 30, 99], [156, 39, 176], [103, 58, 183], [100, 30, 60],
@@ -58,11 +63,6 @@ COCO_LABEL_MAP = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8,
                   74: 65, 75: 66, 76: 67, 77: 68, 78: 69, 79: 70, 80: 71, 81: 72,
                   82: 73, 84: 74, 85: 75, 86: 76, 87: 77, 88: 78, 89: 79, 90: 80}
 
-mask_proto_net = [(256, 3, {'padding': 1}), (256, 3, {'padding': 1}), (256, 3, {'padding': 1}),
-                  (None, -2, {}), (256, 3, {'padding': 1}), (32, 1, {})]
-
-extra_head_net = [(256, 3, {'padding': 1})]
-
 norm_mean = np.array([103.94, 116.78, 123.68], dtype=np.float32)
 norm_std = np.array([57.38, 57.12, 58.40], dtype=np.float32)
 
@@ -72,22 +72,24 @@ class res101_coco:
         self.mode = args.mode
         self.cuda = args.cuda
         self.gpu_id = args.gpu_id
+        assert args.img_size % 32 == 0, f'Img_size must be divisible by 32, got {args.img_size}.'
         self.img_size = args.img_size
         self.class_names = COCO_CLASSES
         self.num_classes = len(COCO_CLASSES) + 1
         self.continuous_id = COCO_LABEL_MAP
-        self.scales = [int(self.img_size / 550 * aa) for aa in (24, 48, 96, 192, 384)]
+        self.scales = [int(self.img_size / 544 * aa) for aa in (24, 48, 96, 192, 384)]
         self.aspect_ratios = [1, 1 / 2, 2]
 
         if self.mode == 'train':
-            self.weight = args.resume if args.resume else 'weights/resnet101_reducedfc.pth'
+            self.weight = args.resume if args.resume else 'weights/backbone_res101.pth'
         else:
             self.weight = args.weight
+
         self.data_root = '/home/feiyu/Data/'
 
         if self.mode == 'train':
-            self.train_imgs = self.data_root + 'coco2017/train2017/'
-            self.train_ann = self.data_root + 'coco2017/annotations/instances_train2017.json'
+            self.train_imgs = self.data_root + 'coco2017/val2017/'
+            self.train_ann = self.data_root + 'coco2017/annotations/instances_val2017.json'
             self.train_bs = args.train_bs
             self.bs_per_gpu = args.bs_per_gpu
             self.val_interval = args.val_interval
@@ -139,7 +141,7 @@ class res50_coco(res101_coco):
     def __init__(self, args):
         super().__init__(args)
         if self.mode == 'train':
-            self.weight = args.resume if args.resume else 'weights/resnet50-19c8e357.pth'
+            self.weight = args.resume if args.resume else 'weights/backbone_res50.pth'
         else:
             self.weight = args.weight
 
@@ -152,7 +154,7 @@ class res50_pascal(res101_coco):
         self.continuous_id = {(aa + 1): (aa + 1) for aa in range(self.num_classes - 1)}
         self.use_square_anchors = False
         if self.mode == 'train':
-            self.weight = args.resume if args.resume else 'weights/resnet50-19c8e357.pth'
+            self.weight = args.resume if args.resume else 'weights/backbone_res50.pth'
         else:
             self.weight = args.weight
 
@@ -160,7 +162,7 @@ class res50_pascal(res101_coco):
             self.train_imgs = self.data_root + 'pascal_sbd/img'
             self.train_ann = self.data_root + 'pascal_sbd/pascal_sbd_train.json'
             self.lr_steps = tuple([int(aa / self.bs_factor) for aa in (0, 60000, 100000, 120000)])
-            self.scales = [int(self.img_size / 550 * aa) for aa in (32, 64, 128, 256, 512)]
+            self.scales = [int(self.img_size / 544 * aa) for aa in (32, 64, 128, 256, 512)]
 
         if self.mode in ('train', 'val'):
             self.val_imgs = self.data_root + 'pascal_sbd/img'
@@ -192,7 +194,7 @@ class res50_custom(res101_coco):
         self.num_classes = len(self.class_names) + 1
         self.continuous_id = {(aa + 1): (aa + 1) for aa in range(self.num_classes - 1)}
         if self.mode == 'train':
-            self.weight = args.resume if args.resume else 'weights/resnet50-19c8e357.pth'
+            self.weight = args.resume if args.resume else 'weights/backbone_res50.pth'
         else:
             self.weight = args.weight
 
