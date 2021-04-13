@@ -88,17 +88,18 @@ class res101_coco:
         self.data_root = '/home/feiyu/Data/'
 
         if self.mode == 'train':
-            self.train_imgs = self.data_root + 'coco2017/train2017/'
-            self.train_ann = self.data_root + 'coco2017/annotations/instances_train2017.json'
+            self.train_imgs = self.data_root + 'coco2017/val2017/'
+            self.train_ann = self.data_root + 'coco2017/annotations/instances_val2017.json'
             self.train_bs = args.train_bs
             self.bs_per_gpu = args.bs_per_gpu
             self.val_interval = args.val_interval
 
             self.bs_factor = self.train_bs / 8
-            self.lr = 0.00001 * self.bs_factor
+            self.lr = 0.00005 * self.bs_factor
             self.warmup_init = self.lr * 0.1
             self.warmup_until = 500  # If adapted with bs_factor, inifinte loss may appear.
-            self.lr_steps = tuple([int(aa / self.bs_factor) for aa in (0, 280000, 560000, 620000, 680000)])
+            # self.lr_steps = tuple([int(aa / self.bs_factor) for aa in (0, 280000, 560000, 620000, 680000)])
+            self.lr_steps = tuple([int(aa / self.bs_factor) for aa in (0, 28000000)])
 
             self.pos_iou_thre = 0.5
             self.neg_iou_thre = 0.4

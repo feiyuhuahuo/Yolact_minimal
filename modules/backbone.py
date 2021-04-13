@@ -111,6 +111,7 @@ class ResNetBackbone(nn.Module):
         #         state_dict[new_key] = state_dict.pop(key)
 
         self.load_state_dict(state_dict, strict=False)
+        print(f'\nBackbone is initiated with {path}.\n')
 
     def add_layer(self, conv_channels=1024, downsample=2, depth=1, block=Bottleneck):
         """ Add a downsample layer to the backbone as per what SSD does. """

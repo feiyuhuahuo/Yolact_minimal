@@ -6,6 +6,7 @@ import math
 from modules.backbone import construct_backbone
 from utils.box_utils import match, crop, make_anchors
 from modules.pvt import PyramidVisionTransformer
+from modules.swin_transformer import SwinTransformer
 import pdb
 
 
@@ -95,9 +96,14 @@ class Yolact(nn.Module):
         self.cfg = cfg
         self.coef_dim = 32
         # self.backbone = construct_backbone(cfg.__class__.__name__, (1, 2, 3))
-        self.backbone = PyramidVisionTransformer(img_size=cfg.img_size, depths=(3, 4, 6, 3))
         # self.fpn = FPN([512, 1024, 2048])
-        self.fpn = FPN([128, 320, 512])
+
+        # self.backbone = PyramidVisionTransformer(depths=(3, 4, 6, 3))
+        # self.fpn = FPN([128, 320, 512])
+
+        self.backbone = SwinTransformer()
+        self.fpn = FPN([192, 384, 768])
+
         self.proto_net = ProtoNet(coef_dim=self.coef_dim)
         self.prediction_layers = PredictionModule(cfg, coef_dim=self.coef_dim)
 

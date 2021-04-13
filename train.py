@@ -10,6 +10,7 @@ from tensorboardX import SummaryWriter
 import argparse
 import datetime
 import re
+import numpy as np
 
 from utils import timer
 from modules.yolact import Yolact
@@ -51,16 +52,16 @@ if args.resume:
     assert re.findall(r'res.+_[a-z]+', args.resume)[0] == cfg_name, 'Resume weight is not compatible with current cfg.'
     net.load_weights(cfg.weight, cfg.cuda)
     start_step = int(cfg.weight.split('.pth')[0].split('_')[-1])
-    print(f'\nResume training with \'{args.resume}\'.\n')
 else:
+    net.backbone.init_backbone('weights/swin_tiny.pth')
+    # net.backbone.init_backbone('weights/pvt_small.pth')
     # net.backbone.init_backbone(cfg.weight)
-    net.backbone.init_backbone('weights/pvt_small_no_pos_embed.pth')
-    print(f'\nTraining from begining, weights initialized with {cfg.weight}.\n')
     start_step = 0
 
 dataset = COCODetection(cfg, mode='train')
 # optimizer = optim.SGD(net.parameters(), lr=cfg.lr, momentum=0.9, weight_decay=5e-4)
-optimizer = optim.AdamW(net.parameters(), lr=cfg.lr, weight_decay=0.0001)
+# optimizer = optim.AdamW(net.parameters(), lr=cfg.lr, weight_decay=0.0001)
+optimizer = optim.AdamW(net.parameters(), lr=cfg.lr, betas=(0.9, 0.999), weight_decay=0.05)
 
 train_sampler = None
 main_gpu = False
@@ -71,11 +72,10 @@ if cfg.cuda:
     main_gpu = dist.get_rank() == 0
     num_gpu = dist.get_world_size()
 
-    net = DDP(net.cuda(), [args.local_rank], output_device=args.local_rank, broadcast_buffers=True)
+    net = DDP(net.cuda(), [args.local_rank], output_device=args.local_rank, broadcast_buffers=True,
+              find_unused_parameters=True)
     train_sampler = DistributedSampler(dataset, shuffle=True)
 
-# If encounters OOM error when training on a 11GB memory GPU with batch_size=8, try set pin_memory= False,
-# not sure if this helps.
 # shuffle must be False if sampler is specified
 data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=cfg.bs_per_gpu // 2, shuffle=(train_sampler is None),
                               collate_fn=train_collate, pin_memory=False, sampler=train_sampler)
@@ -89,6 +89,9 @@ timer.reset()
 step = start_step
 val_step = start_step
 writer = SummaryWriter(f'tensorboard_log/{cfg_name}')
+
+if main_gpu:
+    print(f'Number of all parameters: {np.sum([p.numel() for p in net.parameters()])}\n')
 
 try:  # try-except can shut down all processes after Ctrl + C.
     while training:

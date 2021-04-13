@@ -11,9 +11,8 @@ This implementation has not been updated to Yolact++.
 ## Environments  
 PyTorch >= 1.1  
 Python >= 3.6  
-onnx  
-onnxruntime-gpu ==1.6.0 for CUDA 10.2  
-tensooardX  
+onnxruntime-gpu == 1.6.0 for CUDA 10.2  
+tensorboardX  
 Other common packages.  
 
 ## Prepare
