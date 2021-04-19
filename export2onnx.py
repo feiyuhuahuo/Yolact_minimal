@@ -16,7 +16,9 @@ parser.add_argument('--img_size', type=int, default=544, help='The image size fo
 parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
 
 args = parser.parse_args()
-args.cfg = re.findall(r'res.+_[a-z]+', args.weight)[0]
+prefix = re.findall(r'best_\d+\.\d+_', args.weight)[0]
+suffix = re.findall(r'_\d+\.pth', args.weight)[0]
+args.cfg = args.weight.split(prefix)[-1].split(suffix)[0]
 cfg = get_config(args, mode='detect')
 
 net = Yolact(cfg)

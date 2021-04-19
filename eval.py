@@ -16,7 +16,7 @@ from config import get_config
 
 parser = argparse.ArgumentParser(description='YOLACT COCO Evaluation')
 parser.add_argument('--img_size', type=int, default=544, help='The image size for validation.')
-parser.add_argument('--weight', type=str, default='weights/res101_coco_800000.pth', help='The validation model.')
+parser.add_argument('--weight', type=str, default='weights/best_30.5_res101_coco_392000.pth')
 parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
 parser.add_argument('--val_num', default=-1, type=int, help='The number of images for test, set to -1 for all.')
 parser.add_argument('--coco_api', action='store_true', help='Whether to use cocoapi to evaluate results.')
@@ -110,7 +110,9 @@ def evaluate(net, cfg, step=None):
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    args.cfg = re.findall(r'res.+_[a-z]+', args.weight)[0]
+    prefix = re.findall(r'best_\d+\.\d+_', args.weight)[0]
+    suffix = re.findall(r'_\d+\.pth', args.weight)[0]
+    args.cfg = args.weight.split(prefix)[-1].split(suffix)[0]
     cfg = get_config(args, mode='val')
 
     net = Yolact(cfg)

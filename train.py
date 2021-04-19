@@ -10,7 +10,6 @@ from tensorboardX import SummaryWriter
 import argparse
 import datetime
 import re
-import numpy as np
 
 from utils import timer
 from modules.yolact import Yolact
@@ -53,15 +52,17 @@ if args.resume:
     net.load_weights(cfg.weight, cfg.cuda)
     start_step = int(cfg.weight.split('.pth')[0].split('_')[-1])
 else:
-    net.backbone.init_backbone('weights/swin_tiny.pth')
-    # net.backbone.init_backbone('weights/pvt_small.pth')
-    # net.backbone.init_backbone(cfg.weight)
+    net.backbone.init_backbone(cfg.weight)
     start_step = 0
 
 dataset = COCODetection(cfg, mode='train')
-# optimizer = optim.SGD(net.parameters(), lr=cfg.lr, momentum=0.9, weight_decay=5e-4)
-# optimizer = optim.AdamW(net.parameters(), lr=cfg.lr, weight_decay=0.0001)
-optimizer = optim.AdamW(net.parameters(), lr=cfg.lr, betas=(0.9, 0.999), weight_decay=0.05)
+
+if 'res' in cfg.__class__.__name__:
+    optimizer = optim.SGD(net.parameters(), lr=cfg.lr, momentum=0.9, weight_decay=5e-4)
+elif cfg.__class__.__name__ == 'swin_tiny_coco':
+    optimizer = optim.AdamW(net.parameters(), lr=cfg.lr, weight_decay=0.05)
+else:
+    raise ValueError('Unrecognized cfg.')
 
 train_sampler = None
 main_gpu = False
@@ -72,8 +73,7 @@ if cfg.cuda:
     main_gpu = dist.get_rank() == 0
     num_gpu = dist.get_world_size()
 
-    net = DDP(net.cuda(), [args.local_rank], output_device=args.local_rank, broadcast_buffers=True,
-              find_unused_parameters=True)
+    net = DDP(net.cuda(), [args.local_rank], output_device=args.local_rank, broadcast_buffers=True)
     train_sampler = DistributedSampler(dataset, shuffle=True)
 
 # shuffle must be False if sampler is specified
@@ -91,7 +91,7 @@ val_step = start_step
 writer = SummaryWriter(f'tensorboard_log/{cfg_name}')
 
 if main_gpu:
-    print(f'Number of all parameters: {np.sum([p.numel() for p in net.parameters()])}\n')
+    print(f'Number of all parameters: {sum([p.numel() for p in net.parameters()])}\n')
 
 try:  # try-except can shut down all processes after Ctrl + C.
     while training:
@@ -135,7 +135,7 @@ try:  # try-except can shut down all processes after Ctrl + C.
                 timer.add_batch_time(batch_time)
             time_last = time_this
 
-            if step % 50 == 0 and step != start_step:
+            if step % 10 == 0 and step != start_step:
                 if (not cfg.cuda) or main_gpu:
                     cur_lr = optimizer.param_groups[0]['lr']
                     time_name = ['batch', 'data', 'for+loss', 'backward', 'update']

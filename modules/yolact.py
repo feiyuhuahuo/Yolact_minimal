@@ -3,9 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
-from modules.backbone import construct_backbone
+from modules.resnet import ResNet
 from utils.box_utils import match, crop, make_anchors
-from modules.pvt import PyramidVisionTransformer
 from modules.swin_transformer import SwinTransformer
 import pdb
 
@@ -95,14 +94,16 @@ class Yolact(nn.Module):
         super().__init__()
         self.cfg = cfg
         self.coef_dim = 32
-        # self.backbone = construct_backbone(cfg.__class__.__name__, (1, 2, 3))
-        # self.fpn = FPN([512, 1024, 2048])
 
-        # self.backbone = PyramidVisionTransformer(depths=(3, 4, 6, 3))
-        # self.fpn = FPN([128, 320, 512])
-
-        self.backbone = SwinTransformer()
-        self.fpn = FPN([192, 384, 768])
+        if cfg.__class__.__name__ == 'res101_coco':
+            self.backbone = ResNet(layers=(3, 4, 23, 3))
+            self.fpn = FPN(in_channels=(512, 1024, 2048))
+        elif cfg.__class__.__name__ == 'res50_coco':
+            self.backbone = ResNet(layers=(3, 4, 6, 3))
+            self.fpn = FPN(in_channels=(512, 1024, 2048))
+        elif cfg.__class__.__name__ == 'swin_tiny_coco':
+            self.backbone = SwinTransformer()
+            self.fpn = FPN(in_channels=(192, 384, 768))
 
         self.proto_net = ProtoNet(coef_dim=self.coef_dim)
         self.prediction_layers = PredictionModule(cfg, coef_dim=self.coef_dim)
@@ -127,6 +128,7 @@ class Yolact(nn.Module):
 
         self.load_state_dict(state_dict, strict=True)
         print(f'Model loaded with {weight}.\n')
+        print(f'Number of all parameters: {sum([p.numel() for p in self.parameters()])}\n')
 
     def forward(self, img, box_classes=None, masks_gt=None):
         outs = self.backbone(img)
@@ -190,7 +192,6 @@ class Yolact(nn.Module):
         loss_b = self.box_loss(box_p, all_offsets, pos_bool)
         loss_m = self.lincomb_mask_loss(pos_bool, anchor_max_i, coef_p, proto_p, mask_gt, anchor_max_gt)
         loss_s = self.semantic_seg_loss(seg_p, mask_gt, class_gt)
-
         return loss_c, loss_b, loss_m, loss_s
 
     def category_loss(self, class_p, conf_gt, pos_bool, np_ratio=3):

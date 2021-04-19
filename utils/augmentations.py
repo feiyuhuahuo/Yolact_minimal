@@ -3,8 +3,9 @@ import numpy as np
 import random
 
 from config import norm_mean, norm_std
-import pdb
 
+
+# Warning, do not use numpy random in PyTorch multiprocessing, or the random result will be the same.
 
 def random_mirror(img, masks, boxes):
     if random.randint(0, 1):
