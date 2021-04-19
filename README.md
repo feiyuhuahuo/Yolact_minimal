@@ -5,6 +5,9 @@ The original project is [here](https://github.com/dbolya/yolact).
 This implementation simplified the original code, preserved the main function and made the network easy to understand.  
 This implementation has not been updated to Yolact++.  
 
+
+## A new version with swin transformer as backbone is already. TensorRT acceleration is also already. The two branches are gointg to be merged soon. Please check [here](https://github.com/feiyuhuahuo/Yolact_minimal/tree/dev)  
+
 ### The network structure.  
 ![Example 0](readme_imgs/network.png)
 
