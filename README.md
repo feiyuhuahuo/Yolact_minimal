@@ -12,13 +12,13 @@ This implementation has not been updated to Yolact++.
 PyTorch >= 1.1  
 Python >= 3.6  
 onnxruntime-gpu == 1.6.0 for CUDA 10.2  
-TensorRT == 7.2.3.4
+TensorRT == 7.2.3.4  
 tensorboardX  
 Other common packages.  
 
 ## Prepare
-- Build cython-nms  
 ```Shell
+# Build cython-nms 
 python setup.py build_ext --inplace
 ```
 - Download COCO 2017 datasets, modify `self.data_root` in 'res101_coco' in `config.py`. 
@@ -104,11 +104,11 @@ python detect.py --weight=weights/best_30.5_res101_coco_392000.pth --image=image
 ```
 - cutout object  
 ![Example 3](readme_imgs/cutout.jpg)
-```
+```Shell
 # Use --cutout to cut out detected objects.
 python detect.py --weight=weights/best_30.5_res101_coco_392000.pth --image=images --cutout
 ```
-```
+```Shell
 # To detect videos, pass the path of video, detected video will be saved in `results/videos`:
 python detect.py --weight=weights/best_30.5_res101_coco_392000.pth --video=videos/1.mp4
 # Use --real_time to detect real-timely.
@@ -116,20 +116,21 @@ python detect.py --weight=weights/best_30.5_res101_coco_392000.pth --video=video
 ```
 - linear combination result  
 ![Example 4](readme_imgs/lincomb.jpg)
-```
+
+```Shell
 # Use --hide_mask, --hide_score, --save_lincomb, --no_crop and so on to get different results.
 python detect.py --weight=weights/best_30.5_res101_coco_392000.pth --image=images --save_lincomb
 ```
 
-## Transport to ONNX.  
-```
+## Transport to ONNX    
+```Shell
 python export2onnx.py --weight='weights/best_30.5_res101_coco_392000.pth' --opset=12
 # Detect with ONNX file, all the options are the same as those in `detect.py`.
 python detect_with_onnx.py --weight='onnx_files/res101_coco.onnx' --image=images.
 ```
 
-## Accelerate with TensorRT.  
-```
+## Accelerate with TensorRT   
+```Shell
 python export2trt.py --weight='onnx_files/res101_coco.onnx'
 # Detect with TensorRT, all the options are the same as those in `detect.py`.
 python detect_with_trt.py --weight='trt_files/res101_coco.trt' --image=images.
