@@ -321,13 +321,13 @@ def draw_img(ids_p, class_p, box_p, mask_p, img_origin, cfg, img_name=None, fps=
         color_masks = COLORS[masks_semantic].astype('uint8')
         img_fused = cv2.addWeighted(color_masks, 0.4, img_origin, 0.6, gamma=0)
 
-        total_obj = (masks_semantic != 0)[:, :, None].repeat(3, 2)
-        total_obj = total_obj * img_origin
-        new_mask = ((masks_semantic == 0) * 255)[:, :, None].repeat(3, 2)
-        img_matting = (total_obj + new_mask).astype('uint8')
-        cv2.imwrite(f'results/images/{img_name}_total_obj.jpg', img_matting)
-
         if cfg.cutout:
+            total_obj = (masks_semantic != 0)[:, :, None].repeat(3, 2)
+            total_obj = total_obj * img_origin
+            new_mask = ((masks_semantic == 0) * 255)[:, :, None].repeat(3, 2)
+            img_matting = (total_obj + new_mask).astype('uint8')
+            cv2.imwrite(f'results/images/{img_name}_total_obj.jpg', img_matting)
+
             for i in range(num_detected):
                 one_obj = (mask_p[i])[:, :, None].repeat(3, 2)
                 one_obj = one_obj * img_origin
