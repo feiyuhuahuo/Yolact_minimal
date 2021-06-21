@@ -150,6 +150,8 @@ def nms(class_pred, box_pred, coef_pred, proto_out, anchors, cfg):
     box_thre[:, :2] -= box_thre[:, 2:] / 2
     box_thre[:, 2:] += box_thre[:, :2]
 
+    # box_thre = torch.clip(box_thre, min=0., max=1.)
+
     if class_thre.shape[1] == 0:
         return None, None, None, None, None
     else:
@@ -324,6 +326,12 @@ def draw_img(ids_p, class_p, box_p, mask_p, img_origin, cfg, img_name=None, fps=
         img_fused = cv2.addWeighted(color_masks, 0.4, img_origin, 0.6, gamma=0)
 
         if cfg.cutout:
+            total_obj = (masks_semantic != 0)[:, :, None].repeat(3, 2)
+            total_obj = total_obj * img_origin
+            new_mask = ((masks_semantic == 0) * 255)[:, :, None].repeat(3, 2)
+            img_matting = (total_obj + new_mask).astype('uint8')
+            cv2.imwrite(f'results/images/{img_name}_total_obj.jpg', img_matting)
+
             for i in range(num_detected):
                 one_obj = np.tile(mask_p[i], (3, 1, 1)).transpose((1, 2, 0))
                 one_obj = one_obj * img_origin

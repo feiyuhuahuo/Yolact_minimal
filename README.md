@@ -28,8 +28,8 @@ Yolact trained weights.
 
 |Backbone   | box mAP  | mask mAP | number of parameters | Google Drive                                                                                                             |Baidu Cloud                                                       |
 |:---------:|:--------:|:--------:|:--------------------:|:------------------------------------------------------------------------------------------------------------------------:|:----------------------------------------------------------------:|
-|Resnet50   | 31.5     | 29.3     |       31.16 M        |[todo]()    |[password:]() |
-|Resnet101  | 32.9     | 30.5     |       50.15 M        |[todo]()    |[password:]() |
+|Resnet50   | 31.5     | 29.3     |       31.16 M        |[todo]()    |[todo]() |
+|Resnet101  | 32.9     | 30.5     |       50.15 M        |[todo]()    |[todo]() |
 |swin_tiny  | 33.9     | 31.9     |       34.58 M        |[best_31.9_swin_tiny_coco_308000.pth](https://drive.google.com/file/d/12-RklMCIJ3nUsfP6veWa4s45_Q3s1tXD/view?usp=sharing) |[password: i8e9](https://pan.baidu.com/s/1laOjozNSwf2-mfFz87N_6A) |
 
 ImageNet pre-trained weights.
