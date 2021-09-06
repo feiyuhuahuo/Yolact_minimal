@@ -8,9 +8,11 @@ results/
 test~~.py
 *.mp4
 *.avi
-tensorboard_log/
+events.out*
 build/
 *.c
 *.so
 onnx_files
+trt_files
 weights
+tensorboard_log

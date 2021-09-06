@@ -40,7 +40,7 @@ class Bottleneck(nn.Module):
         return out
 
 
-class ResNetBackbone(nn.Module):
+class ResNet(nn.Module):
     """ Adapted from torchvision.models.resnet """
 
     def __init__(self, layers, block=Bottleneck, norm_layer=nn.BatchNorm2d):
@@ -88,7 +88,6 @@ class ResNetBackbone(nn.Module):
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
-
         x = self.maxpool(x)
 
         outs = []
@@ -101,37 +100,5 @@ class ResNetBackbone(nn.Module):
     def init_backbone(self, path):
         """ Initializes the backbone weights for training. """
         state_dict = torch.load(path)
-
-        # Replace layer1 -> layers.0 etc.
-        keys = list(state_dict)
-        for key in keys:
-            if key.startswith('layer'):
-                idx = int(key[5])
-                new_key = 'layers.' + str(idx - 1) + key[6:]
-                state_dict[new_key] = state_dict.pop(key)
-
-        # Note: Using strict=False is berry scary. Triple check this.
-        self.load_state_dict(state_dict, strict=False)
-
-    def add_layer(self, conv_channels=1024, downsample=2, depth=1, block=Bottleneck):
-        """ Add a downsample layer to the backbone as per what SSD does. """
-        self._make_layer(block, conv_channels // block.expansion, blocks=depth, stride=downsample)
-
-
-def construct_backbone(cfg_name, selected_layers):
-    if '101' in cfg_name:
-        layers = [3, 4, 23, 3]
-    elif '50' in cfg_name:
-        layers = [3, 4, 6, 3]
-    else:
-        raise ValueError('Undefined cfg.')
-
-    backbone = ResNetBackbone(layers=layers)
-
-    # Add downsampling layers until we reach the number we need
-    num_layers = max(selected_layers) + 1
-
-    while len(backbone.layers) < num_layers:
-        backbone.add_layer()
-
-    return backbone
+        self.load_state_dict(state_dict, strict=True)
+        print(f'\nBackbone is initiated with {path}.\n')

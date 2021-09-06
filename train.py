@@ -22,7 +22,7 @@ parser = argparse.ArgumentParser(description='Yolact Training Script')
 parser.add_argument('--local_rank', type=int, default=None)
 parser.add_argument('--cfg', default='res101_coco', help='The configuration name to use.')
 parser.add_argument('--train_bs', type=int, default=8, help='total training batch size')
-parser.add_argument('--img_size', default=550, type=int, help='The image size for training.')
+parser.add_argument('--img_size', default=544, type=int, help='The image size for training.')
 parser.add_argument('--resume', default=None, type=str, help='The path of the weight file to resume training with.')
 parser.add_argument('--val_interval', default=4000, type=int,
                     help='The validation interval during training, pass -1 to disable.')
@@ -30,7 +30,7 @@ parser.add_argument('--val_num', default=-1, type=int, help='The number of image
 parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
 parser.add_argument('--coco_api', action='store_true', help='Whether to use cocoapi to evaluate results.')
 
-# # for numpy randomness
+# for numpy randomness
 # import numpy as np
 # np.random.seed(10)
 # # for randomness in image augmentation
@@ -51,14 +51,18 @@ if args.resume:
     assert re.findall(r'res.+_[a-z]+', args.resume)[0] == cfg_name, 'Resume weight is not compatible with current cfg.'
     net.load_weights(cfg.weight, cfg.cuda)
     start_step = int(cfg.weight.split('.pth')[0].split('_')[-1])
-    print(f'\nResume training with \'{args.resume}\'.\n')
 else:
-    net.init_weights(cfg.weight)
-    print(f'\nTraining from begining, weights initialized with {cfg.weight}.\n')
+    net.backbone.init_backbone(cfg.weight)
     start_step = 0
 
 dataset = COCODetection(cfg, mode='train')
-optimizer = optim.SGD(net.parameters(), lr=cfg.lr, momentum=0.9, weight_decay=5e-4)
+
+if 'res' in cfg.__class__.__name__:
+    optimizer = optim.SGD(net.parameters(), lr=cfg.lr, momentum=0.9, weight_decay=5e-4)
+elif cfg.__class__.__name__ == 'swin_tiny_coco':
+    optimizer = optim.AdamW(net.parameters(), lr=cfg.lr, weight_decay=0.05)
+else:
+    raise ValueError('Unrecognized cfg.')
 
 train_sampler = None
 main_gpu = False
@@ -72,8 +76,6 @@ if cfg.cuda:
     net = DDP(net.cuda(), [args.local_rank], output_device=args.local_rank, broadcast_buffers=True)
     train_sampler = DistributedSampler(dataset, shuffle=True)
 
-# If encounters OOM error when training on a 11GB memory GPU with batch_size=8, try set pin_memory= False,
-# not sure if this helps.
 # shuffle must be False if sampler is specified
 data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=cfg.bs_per_gpu // 2, shuffle=(train_sampler is None),
                               collate_fn=train_collate, pin_memory=False, sampler=train_sampler)
@@ -87,6 +89,9 @@ timer.reset()
 step = start_step
 val_step = start_step
 writer = SummaryWriter(f'tensorboard_log/{cfg_name}')
+
+if main_gpu:
+    print(f'Number of all parameters: {sum([p.numel() for p in net.parameters()])}\n')
 
 try:  # try-except can shut down all processes after Ctrl + C.
     while training:
@@ -130,7 +135,7 @@ try:  # try-except can shut down all processes after Ctrl + C.
                 timer.add_batch_time(batch_time)
             time_last = time_this
 
-            if step % 50 == 0 and step != start_step:
+            if step % 10 == 0 and step != start_step:
                 if (not cfg.cuda) or main_gpu:
                     cur_lr = optimizer.param_groups[0]['lr']
                     time_name = ['batch', 'data', 'for+loss', 'backward', 'update']

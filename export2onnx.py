@@ -12,17 +12,18 @@ from modules.yolact import Yolact
 parser = argparse.ArgumentParser(description='YOLACT Detection.')
 parser.add_argument('--weight', default='weights/best_30.5_res101_coco_392000.pth', type=str)
 parser.add_argument('--opset', type=int, default=12, help='The opset version for transporting to ONNX.')
-parser.add_argument('--img_size', type=int, default=550, help='The image size for validation.')
+parser.add_argument('--img_size', type=int, default=544, help='The image size for validation.')
 parser.add_argument('--traditional_nms', default=False, action='store_true', help='Whether to use traditional nms.')
 
 args = parser.parse_args()
-args.cfg = re.findall(r'res.+_[a-z]+', args.weight)[0]
+prefix = re.findall(r'best_\d+\.\d+_', args.weight)[0]
+suffix = re.findall(r'_\d+\.pth', args.weight)[0]
+args.cfg = args.weight.split(prefix)[-1].split(suffix)[0]
 cfg = get_config(args, mode='detect')
 
 net = Yolact(cfg)
 net.load_weights(cfg.weight, cfg.cuda)
 net.eval().cuda()
-print(f'Model loaded with {cfg.weight}.\n')
 
 img_tensor = torch.randn((1, 3, cfg.img_size, cfg.img_size), device='cuda')
 torch.onnx.export(net, img_tensor, f'onnx_files/{args.cfg}.onnx', verbose=False,

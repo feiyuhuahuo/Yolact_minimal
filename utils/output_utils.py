@@ -129,6 +129,9 @@ def nms(class_pred, box_pred, coef_pred, proto_out, anchors, cfg):
     coef_p = coef_pred.squeeze()  # [19248, 32]
     proto_p = proto_out.squeeze()  # [138, 138, 32]
 
+    if isinstance(anchors, list):
+        anchors = torch.tensor(anchors, device=class_p.device).reshape(-1, 4)
+
     class_p = class_p.transpose(1, 0).contiguous()  # [81, 19248]
 
     # exclude the background class
@@ -165,6 +168,7 @@ def nms_numpy(class_pred, box_pred, coef_pred, proto_out, anchors, cfg):
     box_p = box_pred.squeeze()  # [19248, 4]
     coef_p = coef_pred.squeeze()  # [19248, 32]
     proto_p = proto_out.squeeze()  # [138, 138, 32]
+    anchors = np.array(anchors).reshape(-1, 4)
 
     class_p = class_p.transpose(1, 0)
     # exclude the background class
@@ -335,7 +339,6 @@ def draw_img(ids_p, class_p, box_p, mask_p, img_origin, cfg, img_name=None, fps=
                 x1, y1, x2, y2 = box_p[i, :]
                 img_matting = (one_obj + new_mask)[y1:y2, x1:x2, :]
                 cv2.imwrite(f'results/images/{img_name}_{i}.jpg', img_matting)
-
     scale = 0.6
     thickness = 1
     font = cv2.FONT_HERSHEY_DUPLEX

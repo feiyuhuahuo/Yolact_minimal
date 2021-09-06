@@ -9,6 +9,8 @@ from pycocotools.coco import COCO
 from utils.augmentations import train_aug, val_aug
 
 
+# Warning, do not use numpy random in PyTorch multiprocessing, or the random result will be the same.
+
 def train_collate(batch):
     imgs, targets, masks = [], [], []
     valid_batch = [aa for aa in batch if aa[0] is not None]
