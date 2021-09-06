@@ -95,13 +95,13 @@ class Yolact(nn.Module):
         self.cfg = cfg
         self.coef_dim = 32
 
-        if cfg.__class__.__name__ == 'res101_coco':
+        if cfg.__class__.__name__.startswith('res101'):
             self.backbone = ResNet(layers=(3, 4, 23, 3))
             self.fpn = FPN(in_channels=(512, 1024, 2048))
-        elif cfg.__class__.__name__ == 'res50_coco':
+        elif cfg.__class__.__name__.startswith('res50'):
             self.backbone = ResNet(layers=(3, 4, 6, 3))
             self.fpn = FPN(in_channels=(512, 1024, 2048))
-        elif cfg.__class__.__name__ == 'swin_tiny_coco':
+        elif cfg.__class__.__name__.startswith('swin_tiny'):
             self.backbone = SwinTransformer()
             self.fpn = FPN(in_channels=(192, 384, 768))
 
@@ -115,6 +115,14 @@ class Yolact(nn.Module):
 
         if cfg.mode == 'train':
             self.semantic_seg_conv = nn.Conv2d(256, cfg.num_classes - 1, kernel_size=1)
+
+        # init weights, backbone weights will be covered later
+        for name, module in self.named_modules():
+            if isinstance(module, nn.Conv2d):
+                nn.init.xavier_uniform_(module.weight.data)
+
+                if module.bias is not None:
+                    module.bias.data.zero_()
 
     def load_weights(self, weight, cuda):
         if cuda:
