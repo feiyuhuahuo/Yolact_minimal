@@ -64,7 +64,7 @@ class COCODetection(data.Dataset):
             img_name = self.image_path[index]
             img_origin = cv2.imread(img_name)
             img_normed = val_aug(img_origin, self.cfg.img_size)
-            return img_normed, img_origin, img_name.split('/')[-1]
+            return img_normed, img_origin, img_name.split(osp.sep)[-1]
         else:
             img_id = self.ids[index]
             ann_ids = self.coco.getAnnIds(imgIds=img_id)
